@@ -21,9 +21,9 @@ log_payload='{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-smoke' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-other' PAOP_API_KEY="$other_api_key" go run ./cmd/bootstrap >/dev/null
 
-status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
+status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
 test "$status" = '202'
-status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST 'http://127.0.0.1:18080/v1/logs' --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$log_payload")
+status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST 'http://127.0.0.1:18080/v1/logs' --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$log_payload")
 test "$status" = '202'
 
 for _ in {1..30}; do
@@ -106,12 +106,12 @@ if [[ "$database_dump" == *'smoke-secret-must-not-persist'* || "$database_dump" 
   echo 'secret, PII, or raw API key appeared in PostgreSQL dump' >&2
   exit 1
 fi
-clickhouse_dump=$(curl --silent --show-error --user 'paop:paop-local-only' --data-binary 'select attributes_json from telemetry.spans format JSONEachRow' http://127.0.0.1:18123/)
+clickhouse_dump=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --user 'paop:paop-local-only' --data-binary 'select attributes_json from telemetry.spans format JSONEachRow' http://127.0.0.1:18123/)
 if [[ "$clickhouse_dump" == *'smoke-secret-must-not-persist'* || "$clickhouse_dump" == *'smoke.user@example.test'* || "$clickhouse_dump" == *'synthetic.user@example.test'* ]]; then
   echo 'secret or PII appeared in ClickHouse' >&2
   exit 1
 fi
-deletion=$(curl --silent --show-error --request POST 'http://127.0.0.1:18081/v1/retention/delete' --header "x-paop-api-key: $api_key" --header 'x-paop-delete-confirm: DELETE_SANITIZED_TELEMETRY')
+deletion=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --request POST 'http://127.0.0.1:18081/v1/retention/delete' --header "x-paop-api-key: $api_key" --header 'x-paop-delete-confirm: DELETE_SANITIZED_TELEMETRY')
 [[ "$deletion" == *'"state":"mutation_requested"'* ]]
 database_after_deletion=$("${compose[@]}" exec -T postgres pg_dump -U paop paop)
 if [[ "$database_after_deletion" == *'smoke-secret-must-not-persist'* || "$database_after_deletion" == *'smoke.user@example.test'* ]]; then

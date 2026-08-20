@@ -226,6 +226,11 @@ func (s *Store) RecordTailDecision(ctx context.Context, owner string, lease Tail
 		if err != nil {
 			return false, err
 		}
+		type bufferedEnvelope struct {
+			eventKey string
+			payload  []byte
+		}
+		var buffered []bufferedEnvelope
 		for rows.Next() {
 			var eventKey string
 			var payload []byte
@@ -233,13 +238,15 @@ func (s *Store) RecordTailDecision(ctx context.Context, owner string, lease Tail
 				rows.Close()
 				return false, err
 			}
-			if _, err := tx.ExecContext(ctx, `insert into tail_outbox(event_key, tenant_id, envelope) values ($1, $2, $3::jsonb) on conflict (event_key) do nothing`, eventKey, lease.TenantID, string(payload)); err != nil {
-				rows.Close()
-				return false, err
-			}
+			buffered = append(buffered, bufferedEnvelope{eventKey: eventKey, payload: payload})
 		}
 		if err := rows.Close(); err != nil {
 			return false, err
+		}
+		for _, item := range buffered {
+			if _, err := tx.ExecContext(ctx, `insert into tail_outbox(event_key, tenant_id, envelope) values ($1, $2, $3::jsonb) on conflict (event_key) do nothing`, item.eventKey, lease.TenantID, string(item.payload)); err != nil {
+				return false, err
+			}
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `delete from tail_buffers where tenant_id = $1 and trace_id = $2`, lease.TenantID, lease.TraceID); err != nil {

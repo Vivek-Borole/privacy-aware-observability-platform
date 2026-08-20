@@ -2,6 +2,7 @@
 package ingest
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -37,6 +38,12 @@ type Envelope struct {
 
 type Publisher interface{ Publish(Envelope) error }
 
+// Authenticator resolves a caller to exactly one tenant. It deliberately does
+// not accept a tenant identifier supplied by the untrusted client.
+type Authenticator interface {
+	Tenant(ctx context.Context, key string) (string, bool, error)
+}
+
 // APIKeyAuthenticator stores SHA-256 digests, never raw tenant API keys.
 type APIKeyAuthenticator struct{ tenantByDigest map[string]string }
 
@@ -48,18 +55,18 @@ func NewAPIKeyAuthenticator(keys map[string]string) *APIKeyAuthenticator {
 	return &APIKeyAuthenticator{tenantByDigest: digests}
 }
 
-func (a *APIKeyAuthenticator) Tenant(key string) (string, bool) {
+func (a *APIKeyAuthenticator) Tenant(_ context.Context, key string) (string, bool, error) {
 	candidate := digest(key)
 	for tenant, stored := range a.tenantByDigest {
 		if subtle.ConstantTimeCompare([]byte(candidate), []byte(stored)) == 1 {
-			return tenant, true
+			return tenant, true, nil
 		}
 	}
-	return "", false
+	return "", false, nil
 }
 
 type Gateway struct {
-	Authenticator *APIKeyAuthenticator
+	Authenticator Authenticator
 	Publisher     Publisher
 	PolicyVersion string
 	Patterns      []*regexp.Regexp
@@ -74,7 +81,11 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "gateway unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	tenant, ok := g.Authenticator.Tenant(r.Header.Get("X-PAOP-API-Key"))
+	tenant, ok, err := g.Authenticator.Tenant(r.Context(), r.Header.Get("X-PAOP-API-Key"))
+	if err != nil {
+		http.Error(w, "gateway unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return

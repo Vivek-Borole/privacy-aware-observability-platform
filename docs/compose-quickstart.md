@@ -10,9 +10,10 @@ bash scripts/integration-smoke.sh
 ```
 
 The smoke command starts PostgreSQL, Redpanda, ClickHouse, migrations, gateway,
-persistence worker, and query API. It creates a local synthetic tenant, sends a
-seeded OTLP/HTTP trace, waits for persistence, verifies redaction and
-tenant-scoped lookup, then rejects any raw seed in service logs.
+persistence worker, and query API. It creates a local synthetic tenant, sends
+a seeded OTLP/HTTP trace and a trace-linked OTLP log, waits for persistence,
+verifies redaction and tenant-scoped lookup, then rejects any raw seed in
+service logs.
 
 For the investigation console:
 
@@ -23,8 +24,8 @@ pnpm console:dev
 Open the Vite address, enter `http://localhost:18081`, a local tenant API key,
 and a trace ID. The API key is sent only as the request header and is not stored
 by the console. The **24-hour overview** uses the same authenticated tenant
-context and returns derived span, trace, and error-marked-span counts only; it
-does not return raw telemetry attributes.
+context and returns derived span, trace, log, and error-marked-span counts;
+it does not return raw telemetry attributes.
 
 Prometheus is available at `http://localhost:19090` and the provisioned local
 Grafana dashboard at `http://localhost:13000`. They expose bounded gateway and

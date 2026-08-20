@@ -11,6 +11,10 @@ The repository remains private until all of these are measured and published:
 - proof seeded secrets and PII are absent from the PostgreSQL tail buffer/outbox, Redpanda, ClickHouse, logs, exported traces, screenshots, and release artifacts. `scripts/integration-smoke.sh` performs the durable-store checks, including a payload-silent Redpanda audit;
 - Compose quick start, threat/privacy model, benchmark and failure reports, synthetic screenshots, and a recorded local demo.
 
+The [synthetic demo and screenshot script](demo-script.md) defines the exact
+capture sequence and the review that must occur before any visual evidence is
+attached to a public release.
+
 `cmd/synthetic-emitter` is the only load source used for the benchmark. It
 emits fabricated OTLP/HTTP JSON spans containing HTTP, queue, database, and
 application attributes, deliberately including a synthetic email so the

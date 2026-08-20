@@ -6,6 +6,11 @@ create ignored raw JSON and environment artifacts locally. Review the raw
 counts, failure conditions, machine data, Compose resource state, and sampled
 trace lookup report before creating a signed release report.
 
+It also receives the synthetic-only screenshots and recorded local demo listed
+in [the demo script](../demo-script.md). Do not add those artifacts until the
+release gate has passed and a manual raw-seed review confirms they contain no
+credential, PII, or unredacted telemetry.
+
 The benchmark passes only when the actual 5,000-spans/second, 10-minute run
 has no unexplained failures and `lookupPass` is true (`p95Millis <= 3000`).
 The harness calls `scripts/validate-benchmark-report.mjs`, which rejects a

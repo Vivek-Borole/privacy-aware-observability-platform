@@ -3,3 +3,6 @@ dist/
 coverage/
 .env
 .DS_Store
+*.tsbuildinfo
+apps/console/vite.config.js
+apps/console/vite.config.d.ts

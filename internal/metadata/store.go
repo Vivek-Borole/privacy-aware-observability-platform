@@ -70,6 +70,40 @@ func (s *Store) CreateTenantKey(ctx context.Context, tenantID, keyHash string) e
 	return tx.Commit()
 }
 
+// RedactionPolicy returns the most recently configured policy version and all
+// its regex expressions for a tenant. An absent row deliberately falls back to
+// the gateway's deployment policy rather than disabling default redaction.
+func (s *Store) RedactionPolicy(ctx context.Context, tenantID string) (string, []string, bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+with latest as (
+  select version from redaction_policies where tenant_id = $1 order by created_at desc limit 1
+)
+select policies.version, policies.expression from redaction_policies policies
+join latest on latest.version = policies.version
+where policies.tenant_id = $1 order by policies.expression`, tenantID)
+	if err != nil {
+		return "", nil, false, err
+	}
+	defer rows.Close()
+	var version string
+	var expressions []string
+	for rows.Next() {
+		var currentVersion, expression string
+		if err := rows.Scan(&currentVersion, &expression); err != nil {
+			return "", nil, false, err
+		}
+		if len(expression) == 0 || len(expression) > 512 {
+			return "", nil, false, errors.New("stored redaction expression invalid")
+		}
+		version = currentVersion
+		expressions = append(expressions, expression)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, false, err
+	}
+	return version, expressions, version != "", nil
+}
+
 // ClaimDelivery is the PostgreSQL authority for event identity. A persisted
 // event is never sent to ClickHouse again; a pending event may be retried after
 // a crashed consumer, where ClickHouse's ReplacingMergeTree protects queries

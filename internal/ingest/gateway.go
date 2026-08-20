@@ -60,6 +60,12 @@ type Authenticator interface {
 	Tenant(ctx context.Context, key string) (string, bool, error)
 }
 
+// PolicyResolver provides tenant-owned regex rules for the versioned redaction
+// policy. The returned expressions are configuration, never telemetry content.
+type PolicyResolver interface {
+	RedactionPolicy(ctx context.Context, tenantID string) (version string, expressions []string, found bool, err error)
+}
+
 // APIKeyAuthenticator stores SHA-256 digests, never raw tenant API keys.
 type APIKeyAuthenticator struct{ tenantByDigest map[string]string }
 
@@ -82,11 +88,12 @@ func (a *APIKeyAuthenticator) Tenant(_ context.Context, key string) (string, boo
 }
 
 type Gateway struct {
-	Authenticator Authenticator
-	Publisher     Publisher
-	Stager        Stager
-	PolicyVersion string
-	Patterns      []*regexp.Regexp
+	Authenticator  Authenticator
+	Publisher      Publisher
+	Stager         Stager
+	PolicyVersion  string
+	Patterns       []*regexp.Regexp
+	PolicyResolver PolicyResolver
 }
 
 func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -161,12 +168,16 @@ func (g Gateway) acceptEvent(ctx context.Context, tenant string, event Event) er
 // When the production batch stager is installed, no subset of a syntactically
 // invalid OTLP payload can become visible as accepted telemetry.
 func (g Gateway) acceptEvents(ctx context.Context, tenant string, events []Event) error {
+	policyVersion, patterns, err := g.policy(ctx, tenant)
+	if err != nil {
+		return err
+	}
 	envelopes := make([]Envelope, 0, len(events))
 	for _, event := range events {
 		if !valid(event) {
 			return ErrInvalidOTLP
 		}
-		attributes, receipt := redaction.Sanitize(event.Attributes, g.PolicyVersion, g.Patterns)
+		attributes, receipt := redaction.Sanitize(event.Attributes, policyVersion, patterns)
 		event.Attributes = attributes
 		envelopes = append(envelopes, Envelope{TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID})
 	}
@@ -187,6 +198,35 @@ func (g Gateway) acceptEvents(ctx context.Context, tenant string, events []Event
 		}
 	}
 	return nil
+}
+
+func (g Gateway) policy(ctx context.Context, tenant string) (string, []*regexp.Regexp, error) {
+	version := g.PolicyVersion
+	patterns := append([]*regexp.Regexp(nil), g.Patterns...)
+	if g.PolicyResolver == nil {
+		return version, patterns, nil
+	}
+	resolvedVersion, expressions, found, err := g.PolicyResolver.RedactionPolicy(ctx, tenant)
+	if err != nil {
+		return "", nil, err
+	}
+	if !found {
+		return version, patterns, nil
+	}
+	if resolvedVersion == "" {
+		return "", nil, errors.New("redaction policy version missing")
+	}
+	for _, expression := range expressions {
+		if len(expression) == 0 || len(expression) > 512 {
+			return "", nil, errors.New("redaction policy expression invalid")
+		}
+		compiled, err := regexp.Compile(expression)
+		if err != nil {
+			return "", nil, errors.New("redaction policy expression invalid")
+		}
+		patterns = append(patterns, compiled)
+	}
+	return resolvedVersion, patterns, nil
 }
 
 func valid(event Event) bool {

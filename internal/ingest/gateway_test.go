@@ -16,6 +16,17 @@ type batchStagerStub struct {
 	batches    [][]Envelope
 }
 
+type policyResolverStub struct {
+	version     string
+	expressions []string
+	found       bool
+	err         error
+}
+
+func (s policyResolverStub) RedactionPolicy(_ context.Context, _ string) (string, []string, bool, error) {
+	return s.version, s.expressions, s.found, s.err
+}
+
 func (s *batchStagerStub) Stage(_ context.Context, _ Envelope) error {
 	s.stageCalls++
 	return nil
@@ -78,6 +89,43 @@ func TestGatewayAcceptsOTLPJSONAndRedactsBeforePublish(t *testing.T) {
 		if strings.Contains(string(serialized), forbidden) {
 			t.Fatalf("sanitized OTLP envelope leaked %q", forbidden)
 		}
+	}
+}
+
+func TestGatewayUsesVersionedTenantPolicyBeforePublishing(t *testing.T) {
+	publisher := &MemoryPublisher{}
+	gateway := Gateway{
+		Authenticator:  NewAPIKeyAuthenticator(map[string]string{"tenant-a": "tenant-policy-key"}),
+		Publisher:      publisher,
+		PolicyVersion:  "deployment-v1",
+		PolicyResolver: policyResolverStub{version: "tenant-v2", expressions: []string{`account-[0-9]+`}, found: true},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/ingest", strings.NewReader(`{"eventId":"event-1","traceId":"trace-1","spanId":"span-1","name":"checkout","attributes":{"account":"account-42"}}`))
+	request.Header.Set("X-PAOP-API-Key", "tenant-policy-key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || len(publisher.Envelopes) != 1 {
+		t.Fatalf("status=%d envelopes=%#v", response.Code, publisher.Envelopes)
+	}
+	envelope := publisher.Envelopes[0]
+	if envelope.Policy.PolicyVersion != "tenant-v2" || envelope.Event.Attributes["account"] != "[REDACTED_PATTERN]" {
+		t.Fatalf("tenant policy was not enforced: %#v", envelope)
+	}
+}
+
+func TestGatewayDoesNotPublishWhenTenantPolicyIsInvalid(t *testing.T) {
+	publisher := &MemoryPublisher{}
+	gateway := Gateway{
+		Authenticator:  NewAPIKeyAuthenticator(map[string]string{"tenant-a": "tenant-policy-key"}),
+		Publisher:      publisher,
+		PolicyResolver: policyResolverStub{version: "tenant-v2", expressions: []string{"("}, found: true},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/ingest", strings.NewReader(`{"eventId":"event-1","traceId":"trace-1","spanId":"span-1","name":"checkout"}`))
+	request.Header.Set("X-PAOP-API-Key", "tenant-policy-key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || len(publisher.Envelopes) != 0 {
+		t.Fatalf("invalid policy must not publish: status=%d envelopes=%#v", response.Code, publisher.Envelopes)
 	}
 }
 

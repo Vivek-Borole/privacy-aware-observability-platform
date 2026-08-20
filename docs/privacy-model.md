@@ -9,9 +9,12 @@ The default policy removes or replaces values before durable publication.
 | configured regular-expression matches | replace with `[REDACTED_PATTERN]` |
 | non-sensitive bounded attributes | retain unchanged |
 
-Every accepted envelope includes a policy version and a list of redacted field
-paths, never removed values. Redactors are composed: a log body containing an
-email and a configured pattern receives both replacements before publication.
+Every accepted envelope includes the active policy version and a list of
+redacted field paths, never removed values. The gateway applies its deployment
+defaults for every tenant and supplements them with the most recently configured
+tenant policy version when one exists. Redactors are composed: a log body
+containing an email and a configured pattern receives both replacements before
+publication.
 The PostgreSQL tail buffer and outbox contain only that sanitized envelope.
 Sampling decisions retain trace ID, reason, count, and timestamp only—never an
 attribute or body. Tests seed bearer tokens, cookies, API keys, emails, and

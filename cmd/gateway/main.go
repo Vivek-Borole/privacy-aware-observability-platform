@@ -22,7 +22,7 @@ func main() {
 	}
 	defer store.Close()
 	patterns := compilePatterns(os.Getenv("PAOP_REDACTION_PATTERNS"))
-	gateway := ingest.Gateway{Authenticator: store, Stager: store, PolicyVersion: valueOr("PAOP_POLICY_VERSION", "v1"), Patterns: patterns}
+	gateway := ingest.Gateway{Authenticator: store, Stager: store, PolicyVersion: valueOr("PAOP_POLICY_VERSION", "v1"), Patterns: patterns, PolicyResolver: store}
 	metrics := observe.NewHTTP("gateway")
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics)

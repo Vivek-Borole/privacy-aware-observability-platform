@@ -18,18 +18,19 @@ import (
 )
 
 type result struct {
-	StartedAt       string  `json:"startedAt"`
-	TargetPerSecond int     `json:"targetPerSecond"`
-	DurationSeconds int     `json:"durationSeconds"`
-	Sent            int64   `json:"sent"`
-	Accepted        int64   `json:"accepted"`
-	Failed          int64   `json:"failed"`
-	P50Millis       float64 `json:"p50Millis"`
-	P95Millis       float64 `json:"p95Millis"`
-	P99Millis       float64 `json:"p99Millis"`
-	GOOS            string  `json:"goos"`
-	GOARCH          string  `json:"goarch"`
-	CPUs            int     `json:"cpus"`
+	StartedAt       string   `json:"startedAt"`
+	TargetPerSecond int      `json:"targetPerSecond"`
+	DurationSeconds int      `json:"durationSeconds"`
+	Sent            int64    `json:"sent"`
+	Accepted        int64    `json:"accepted"`
+	Failed          int64    `json:"failed"`
+	P50Millis       float64  `json:"p50Millis"`
+	P95Millis       float64  `json:"p95Millis"`
+	P99Millis       float64  `json:"p99Millis"`
+	GOOS            string   `json:"goos"`
+	GOARCH          string   `json:"goarch"`
+	CPUs            int      `json:"cpus"`
+	TraceSamples    []string `json:"traceSamples"`
 }
 
 func main() {
@@ -39,8 +40,9 @@ func main() {
 	duration := flag.Duration("duration", 10*time.Second, "run duration")
 	workers := flag.Int("workers", 4, "concurrent request workers")
 	output := flag.String("output", "", "optional JSON result file")
+	sampleLimit := flag.Int("trace-sample-limit", 100, "maximum successful trace IDs retained for later lookup measurement")
 	flag.Parse()
-	if *key == "" || *rate < 1 || *workers < 1 {
+	if *key == "" || *rate < 1 || *workers < 1 || *sampleLimit < 0 {
 		fmt.Fprintln(os.Stderr, "api-key, positive rate, and positive workers are required")
 		os.Exit(2)
 	}
@@ -48,6 +50,8 @@ func main() {
 	jobs := make(chan int)
 	latencies := make(chan time.Duration, *rate*2)
 	var sent, accepted, failed int64
+	var samplesLock sync.Mutex
+	traceSamples := make([]string, 0, *sampleLimit)
 	client := &http.Client{Timeout: 5 * time.Second}
 	var group sync.WaitGroup
 	for range *workers {
@@ -57,7 +61,8 @@ func main() {
 			for range jobs {
 				start := time.Now()
 				atomic.AddInt64(&sent, 1)
-				request, err := http.NewRequest(http.MethodPost, *endpoint, bytes.NewReader(spanPayload()))
+				payload, traceID := spanPayload()
+				request, err := http.NewRequest(http.MethodPost, *endpoint, bytes.NewReader(payload))
 				if err == nil {
 					request.Header.Set("Content-Type", "application/json")
 					request.Header.Set("X-PAOP-API-Key", *key)
@@ -67,6 +72,11 @@ func main() {
 						response.Body.Close()
 						if response.StatusCode == http.StatusAccepted {
 							atomic.AddInt64(&accepted, 1)
+							samplesLock.Lock()
+							if len(traceSamples) < *sampleLimit {
+								traceSamples = append(traceSamples, traceID)
+							}
+							samplesLock.Unlock()
 							latencies <- time.Since(start)
 							continue
 						}
@@ -97,7 +107,7 @@ loop:
 		samples = append(samples, float64(latency.Microseconds())/1000)
 	}
 	sort.Float64s(samples)
-	report := result{StartedAt: startedAt.Format(time.RFC3339), TargetPerSecond: *rate, DurationSeconds: int(duration.Seconds()), Sent: sent, Accepted: accepted, Failed: failed, P50Millis: percentile(samples, 50), P95Millis: percentile(samples, 95), P99Millis: percentile(samples, 99), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU()}
+	report := result{StartedAt: startedAt.Format(time.RFC3339), TargetPerSecond: *rate, DurationSeconds: int(duration.Seconds()), Sent: sent, Accepted: accepted, Failed: failed, P50Millis: percentile(samples, 50), P95Millis: percentile(samples, 95), P99Millis: percentile(samples, 99), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU(), TraceSamples: traceSamples}
 	encoded, _ := json.MarshalIndent(report, "", "  ")
 	if *output != "" {
 		if err := os.WriteFile(*output, append(encoded, '\n'), 0o600); err != nil {
@@ -108,7 +118,7 @@ loop:
 	_, _ = os.Stdout.Write(append(encoded, '\n'))
 }
 
-func spanPayload() []byte {
+func spanPayload() ([]byte, string) {
 	trace, span := randomID(16), randomID(8)
 	spanJSON := map[string]any{"traceId": trace, "spanId": span, "name": "synthetic.checkout", "attributes": []any{
 		map[string]any{"key": "service.name", "value": map[string]any{"stringValue": "synthetic-typescript-gateway"}},
@@ -118,7 +128,7 @@ func spanPayload() []byte {
 		map[string]any{"key": "customer.email", "value": map[string]any{"stringValue": "synthetic.user@example.test"}},
 	}}
 	payload, _ := json.Marshal(map[string]any{"resourceSpans": []any{map[string]any{"scopeSpans": []any{map[string]any{"spans": []any{spanJSON}}}}}})
-	return payload
+	return payload, trace
 }
 func randomID(bytesLen int) string {
 	bytes := make([]byte, bytesLen)

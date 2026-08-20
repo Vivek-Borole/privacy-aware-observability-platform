@@ -1,20 +1,18 @@
 # Benchmark methodology
 
 The release benchmark is run only on the stated M3 Pro / 18 GB development
-machine after a clean Compose start. It uses no production data.
+machine after a clean Compose start. It uses no production data. Run the
+reproducible harness:
 
 ```bash
-go run ./cmd/synthetic-emitter \
-  -endpoint http://127.0.0.1:18080/v1/traces \
-  -api-key "$PAOP_SYNTHETIC_API_KEY" \
-  -rate 5000 -workers 64 -duration 10m \
-  -output docs/evidence/ingestion-benchmark.json
+bash scripts/run-benchmark.sh
 ```
 
-The command records start time, operating system/architecture, CPU count,
-target rate, request totals, accepted/failure counts, and p50/p95/p99 ingest
-latency. The release report must also record Docker, Go, and Node versions,
-compose service resource use, ClickHouse query p95, and any failure conditions.
+The harness records start time, operating system/architecture, CPU count,
+target rate, request totals, accepted/failure counts, p50/p95/p99 ingest
+latency, a bounded list of successful synthetic trace IDs, Docker/Go/Node
+versions, Compose state, and sampled ClickHouse lookup p50/p95/p99. The release
+report must also record observed service resource use and any failure conditions.
 It passes only if the stated workload completes without unexplained loss and
 the separately measured sanitized trace lookup p95 is at most three seconds.
 

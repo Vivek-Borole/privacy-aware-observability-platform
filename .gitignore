@@ -6,3 +6,5 @@ coverage/
 *.tsbuildinfo
 apps/console/vite.config.js
 apps/console/vite.config.d.ts
+docs/evidence/*.json
+docs/evidence/*.txt

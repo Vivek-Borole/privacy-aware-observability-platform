@@ -49,6 +49,15 @@ type Span struct {
 	IngestedAt    string            `json:"ingestedAt"`
 }
 
+// UsageMetrics is a deliberately small, tenant-scoped operational summary.
+// It contains derived counts only; it never returns raw attributes or events.
+type UsageMetrics struct {
+	WindowHours int64 `json:"windowHours"`
+	SpanCount   int64 `json:"spanCount"`
+	ErrorCount  int64 `json:"errorCount"`
+	TraceCount  int64 `json:"traceCount"`
+}
+
 func (c *ClickHouse) Persist(ctx context.Context, envelope ingest.Envelope) error {
 	attributes, err := json.Marshal(envelope.Event.Attributes)
 	if err != nil {
@@ -130,6 +139,41 @@ func (c *ClickHouse) QueryTrace(ctx context.Context, tenantID, traceID string) (
 		spans = append(spans, Span{EventKey: stored.EventKey, EventID: stored.EventID, TraceID: stored.TraceID, SpanID: stored.SpanID, Name: stored.Name, Attributes: attributes, PolicyVersion: stored.PolicyVersion, RedactedPaths: stored.RedactedPaths, IngestedAt: stored.IngestedAt})
 	}
 	return spans, nil
+}
+
+// QueryUsage returns a fixed 24-hour view. The time window and tenant predicate
+// are server-owned: callers cannot request an arbitrary SQL expression or a
+// different tenant's data.
+func (c *ClickHouse) QueryUsage(ctx context.Context, tenantID string) (UsageMetrics, error) {
+	endpoint, err := url.Parse(c.endpoint + "/")
+	if err != nil {
+		return UsageMetrics{}, err
+	}
+	values := endpoint.Query()
+	values.Set("query", "SELECT count() AS span_count,uniqExact(trace_id) AS trace_count,countIf(toInt32OrZero(JSONExtractString(attributes_json, 'http.status_code')) >= 500 OR JSONExtractString(attributes_json, 'error') = 'true') AS error_count FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND ingested_at >= now() - INTERVAL 24 HOUR FORMAT JSONEachRow")
+	values.Set("param_tenant", tenantID)
+	endpoint.RawQuery = values.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)
+	if err != nil {
+		return UsageMetrics{}, err
+	}
+	response, err := c.client.Do(request)
+	if err != nil {
+		return UsageMetrics{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		return UsageMetrics{}, fmt.Errorf("clickhouse status class %d", response.StatusCode/100)
+	}
+	var result struct {
+		SpanCount  int64 `json:"span_count"`
+		TraceCount int64 `json:"trace_count"`
+		ErrorCount int64 `json:"error_count"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return UsageMetrics{}, err
+	}
+	return UsageMetrics{WindowHours: 24, SpanCount: result.SpanCount, TraceCount: result.TraceCount, ErrorCount: result.ErrorCount}, nil
 }
 
 // DeleteOlderThan uses ClickHouse named parameters, keeping the tenant policy

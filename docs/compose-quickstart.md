@@ -22,4 +22,6 @@ pnpm console:dev
 
 Open the Vite address, enter `http://localhost:18081`, a local tenant API key,
 and a trace ID. The API key is sent only as the request header and is not stored
-by the console.
+by the console. The **24-hour overview** uses the same authenticated tenant
+context and returns derived span, trace, and error-marked-span counts only; it
+does not return raw telemetry attributes.

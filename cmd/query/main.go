@@ -23,7 +23,7 @@ func main() {
 	metrics := observe.NewHTTP("query")
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics)
-	mux.Handle("/", metrics.Wrap(query.API{Authenticator: store, Store: clickhouse, Deleter: clickhouse, Auditor: store, AuditReader: store, Sampling: store}))
+	mux.Handle("/", metrics.Wrap(query.API{Authenticator: store, Store: clickhouse, Deleter: clickhouse, TailDeleter: store, Auditor: store, AuditReader: store, Sampling: store}))
 	handler := cors(mux, valueOr("PAOP_CONSOLE_ORIGIN", "http://localhost:5173"))
 	server := &http.Server{Addr: valueOr("PAOP_QUERY_LISTEN_ADDR", ":8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	slog.Info("query API listening", "address", server.Addr)

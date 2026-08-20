@@ -24,8 +24,13 @@ func main() {
 	}
 	clickhouse := telemetry.NewClickHouse(required("PAOP_CLICKHOUSE_URL"))
 	for _, policy := range policies {
-		if err := clickhouse.DeleteOlderThan(context.Background(), policy.TenantID, time.Now().AddDate(0, 0, -policy.Days)); err != nil {
+		cutoff := time.Now().UTC().AddDate(0, 0, -policy.Days)
+		if err := clickhouse.DeleteOlderThan(context.Background(), policy.TenantID, cutoff); err != nil {
 			slog.Error("retention mutation request failed", "tenant", policy.TenantID, "errorClass", "clickhouse_unavailable")
+			os.Exit(1)
+		}
+		if err := store.DeleteTailDataBefore(context.Background(), policy.TenantID, cutoff); err != nil {
+			slog.Error("tail retention cleanup failed", "tenant", policy.TenantID, "errorClass", "database_unavailable")
 			os.Exit(1)
 		}
 		slog.Info("retention mutation requested", "tenant", policy.TenantID, "days", policy.Days)

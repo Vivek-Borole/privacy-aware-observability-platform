@@ -21,6 +21,9 @@ type TraceStore interface {
 type TenantDeleter interface {
 	DeleteTenantTelemetry(context.Context, string) error
 }
+type TailDataDeleter interface {
+	DeleteTenantTailData(context.Context, string) error
+}
 type AuditSink interface {
 	RecordAudit(context.Context, string, string, map[string]string) error
 }
@@ -34,6 +37,7 @@ type API struct {
 	Authenticator ingest.Authenticator
 	Store         TraceStore
 	Deleter       TenantDeleter
+	TailDeleter   TailDataDeleter
 	Auditor       AuditSink
 	AuditReader   AuditReader
 	Sampling      SamplingReader
@@ -64,7 +68,11 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "explicit deletion confirmation required", http.StatusBadRequest)
 			return
 		}
-		if a.Deleter == nil || a.Auditor == nil {
+		if a.Deleter == nil || a.TailDeleter == nil || a.Auditor == nil {
+			http.Error(w, "deletion unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := a.TailDeleter.DeleteTenantTailData(r.Context(), tenant); err != nil {
 			http.Error(w, "deletion unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -72,7 +80,7 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "deletion unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err := a.Auditor.RecordAudit(r.Context(), tenant, "tenant_telemetry_deletion_requested", map[string]string{"scope": "all_sanitized_telemetry", "state": "clickhouse_mutation_requested"}); err != nil {
+		if err := a.Auditor.RecordAudit(r.Context(), tenant, "tenant_telemetry_deletion_requested", map[string]string{"scope": "clickhouse_mutation_requested_and_tail_data_deleted", "state": "mutation_requested"}); err != nil {
 			http.Error(w, "deletion audit unavailable", http.StatusServiceUnavailable)
 			return
 		}

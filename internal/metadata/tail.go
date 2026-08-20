@@ -336,3 +336,49 @@ func (s *Store) TailDecisions(ctx context.Context, tenantID string, limit int) (
 	}
 	return decisions, rows.Err()
 }
+
+// DeleteTailDataBefore removes completed, sanitized sampling metadata that has
+// aged beyond a tenant's retention cutoff. Undecided traces and unpublished
+// outbox entries are deliberately retained: deleting them would convert a
+// recoverable delivery delay into silent loss.
+func (s *Store) DeleteTailDataBefore(ctx context.Context, tenantID string, cutoff time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`delete from tail_outbox where tenant_id = $1 and published_at is not null and created_at < $2`,
+		`delete from tail_event_keys where tenant_id = $1 and created_at < $2`,
+		`delete from tail_decisions where tenant_id = $1 and created_at < $2`,
+		`delete from tail_traces where tenant_id = $1 and decided_at is not null and decided_at < $2`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, tenantID, cutoff); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteTenantTailData removes all tenant-scoped sanitized buffering and
+// sampling metadata for an explicit deletion request. It is separate from
+// ClickHouse's asynchronous mutation so the API can truthfully record both
+// storage domains as deletion work rather than claiming instant erasure.
+func (s *Store) DeleteTenantTailData(ctx context.Context, tenantID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`delete from tail_outbox where tenant_id = $1`,
+		`delete from tail_event_keys where tenant_id = $1`,
+		`delete from tail_decisions where tenant_id = $1`,
+		`delete from tail_traces where tenant_id = $1`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, tenantID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

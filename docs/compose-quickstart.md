@@ -32,6 +32,11 @@ by the console. The **24-hour overview** uses the same authenticated tenant
 context and returns derived span, trace, log, and error-marked-span counts;
 it does not return raw telemetry attributes.
 
+The console’s **Request deletion** control requires typing the exact destructive
+phrase. It clears the tenant’s PostgreSQL tail metadata synchronously and then
+requests a ClickHouse mutation. The status stays `mutation_requested`; it does
+not imply that ClickHouse has already completed physical erasure.
+
 Prometheus is available at `http://localhost:19090` and the provisioned local
 Grafana dashboard at `http://localhost:13000`. The OpenTelemetry Collector
 scrapes and exports bounded gateway/query HTTP outcomes to Prometheus; no

@@ -31,3 +31,13 @@ go test -race ./...
 # Docker Desktop commonly provides `docker compose`; this Mac's Colima setup uses `docker-compose`.
 docker compose config || docker-compose config
 ```
+
+Run the complete synthetic integration check (Docker required):
+
+```bash
+bash scripts/integration-smoke.sh
+```
+
+It bootstraps a local synthetic tenant, submits an OTLP/HTTP trace with seeded
+secret/PII fields, waits for the authorized query result, and fails if the raw
+values appear in query output or service logs.

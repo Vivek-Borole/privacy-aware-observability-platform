@@ -10,18 +10,26 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 type result struct {
+	StartedAt       string  `json:"startedAt"`
 	TargetPerSecond int     `json:"targetPerSecond"`
 	DurationSeconds int     `json:"durationSeconds"`
 	Sent            int64   `json:"sent"`
 	Accepted        int64   `json:"accepted"`
 	Failed          int64   `json:"failed"`
+	P50Millis       float64 `json:"p50Millis"`
 	P95Millis       float64 `json:"p95Millis"`
+	P99Millis       float64 `json:"p99Millis"`
+	GOOS            string  `json:"goos"`
+	GOARCH          string  `json:"goarch"`
+	CPUs            int     `json:"cpus"`
 }
 
 func main() {
@@ -30,6 +38,7 @@ func main() {
 	rate := flag.Int("rate", 100, "target spans per second")
 	duration := flag.Duration("duration", 10*time.Second, "run duration")
 	workers := flag.Int("workers", 4, "concurrent request workers")
+	output := flag.String("output", "", "optional JSON result file")
 	flag.Parse()
 	if *key == "" || *rate < 1 || *workers < 1 {
 		fmt.Fprintln(os.Stderr, "api-key, positive rate, and positive workers are required")
@@ -67,6 +76,7 @@ func main() {
 			}
 		}()
 	}
+	startedAt := time.Now().UTC()
 	ticker := time.NewTicker(time.Second / time.Duration(*rate))
 	deadline := time.NewTimer(*duration)
 loop:
@@ -86,12 +96,16 @@ loop:
 	for latency := range latencies {
 		samples = append(samples, float64(latency.Microseconds())/1000)
 	}
-	sortFloat64(samples)
-	p95 := 0.0
-	if len(samples) > 0 {
-		p95 = samples[(len(samples)-1)*95/100]
+	sort.Float64s(samples)
+	report := result{StartedAt: startedAt.Format(time.RFC3339), TargetPerSecond: *rate, DurationSeconds: int(duration.Seconds()), Sent: sent, Accepted: accepted, Failed: failed, P50Millis: percentile(samples, 50), P95Millis: percentile(samples, 95), P99Millis: percentile(samples, 99), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU()}
+	encoded, _ := json.MarshalIndent(report, "", "  ")
+	if *output != "" {
+		if err := os.WriteFile(*output, append(encoded, '\n'), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(result{TargetPerSecond: *rate, DurationSeconds: int(duration.Seconds()), Sent: sent, Accepted: accepted, Failed: failed, P95Millis: p95})
+	_, _ = os.Stdout.Write(append(encoded, '\n'))
 }
 
 func spanPayload() []byte {
@@ -113,10 +127,9 @@ func randomID(bytesLen int) string {
 	}
 	return hex.EncodeToString(bytes)
 }
-func sortFloat64(values []float64) {
-	for i := 1; i < len(values); i++ {
-		for j := i; j > 0 && values[j] < values[j-1]; j-- {
-			values[j], values[j-1] = values[j-1], values[j]
-		}
+func percentile(values []float64, percentile int) float64 {
+	if len(values) == 0 {
+		return 0
 	}
+	return values[(len(values)-1)*percentile/100]
 }

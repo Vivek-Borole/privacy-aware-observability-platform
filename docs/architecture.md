@@ -28,3 +28,48 @@ lookup. A downstream failure therefore yields retry or an explicit loss receipt
 rather than silent success.
 
 Raw telemetry is untrusted input and never reaches broker, storage, or logs before validation and redaction. PostgreSQL metadata and ClickHouse queries always include tenant scope.
+
+## Durable tail decision state
+
+```mermaid
+stateDiagram-v2
+  [*] --> staged: gateway validates + redacts
+  staged --> collecting: durable trace buffer
+  collecting --> retained: error, slow, or healthy sample
+  collecting --> dropped: healthy sample decision
+  collecting --> evicted: pressure or span bound
+  retained --> outboxed: sanitized retained events
+  outboxed --> broker_acknowledged: Redpanda acknowledges
+  broker_acknowledged --> persisted: consumer ledger + ClickHouse write
+  dropped --> [*]
+  evicted --> [*]
+  persisted --> [*]
+```
+
+The trace buffer and decision are PostgreSQL transactions. A tailer crash before
+broker acknowledgement leaves the sanitized outbox item eligible for a later
+lease. A crash after acknowledgement but before marking that outbox row can
+duplicate broker delivery; the delivery ledger and deterministic event identity
+make the ClickHouse-visible effect idempotent. Pressure eviction is not silently
+discarded: it is recorded as a non-retained decision.
+
+## Explicit retention deletion flow
+
+```mermaid
+sequenceDiagram
+  participant Owner as Tenant owner
+  participant Query as Query API
+  participant PG as PostgreSQL tail metadata
+  participant CH as ClickHouse
+  Owner->>Query: POST /v1/retention/delete + confirmation
+  Query->>PG: authorise, delete durable tail metadata, audit request
+  Query->>CH: schedule tenant mutation
+  Query-->>Owner: mutation_requested
+  Note over CH: asynchronous storage mutation is observable
+```
+
+The deletion endpoint removes this tenant's tail buffers, decisions, outbox
+records, and tail event keys synchronously. It requests the ClickHouse mutation
+separately because ClickHouse performs it asynchronously. The system never
+reports that storage erasure is already complete merely because the request was
+accepted.

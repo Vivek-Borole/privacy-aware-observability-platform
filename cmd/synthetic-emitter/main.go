@@ -18,19 +18,22 @@ import (
 )
 
 type result struct {
-	StartedAt       string   `json:"startedAt"`
-	TargetPerSecond int      `json:"targetPerSecond"`
-	DurationSeconds int      `json:"durationSeconds"`
-	Sent            int64    `json:"sent"`
-	Accepted        int64    `json:"accepted"`
-	Failed          int64    `json:"failed"`
-	P50Millis       float64  `json:"p50Millis"`
-	P95Millis       float64  `json:"p95Millis"`
-	P99Millis       float64  `json:"p99Millis"`
-	GOOS            string   `json:"goos"`
-	GOARCH          string   `json:"goarch"`
-	CPUs            int      `json:"cpus"`
-	TraceSamples    []string `json:"traceSamples"`
+	StartedAt         string   `json:"startedAt"`
+	FinishedAt        string   `json:"finishedAt"`
+	TargetPerSecond   int      `json:"targetPerSecond"`
+	DurationSeconds   int      `json:"durationSeconds"`
+	ElapsedMillis     float64  `json:"elapsedMillis"`
+	AchievedPerSecond float64  `json:"achievedPerSecond"`
+	Sent              int64    `json:"sent"`
+	Accepted          int64    `json:"accepted"`
+	Failed            int64    `json:"failed"`
+	P50Millis         float64  `json:"p50Millis"`
+	P95Millis         float64  `json:"p95Millis"`
+	P99Millis         float64  `json:"p99Millis"`
+	GOOS              string   `json:"goos"`
+	GOARCH            string   `json:"goarch"`
+	CPUs              int      `json:"cpus"`
+	TraceSamples      []string `json:"traceSamples"`
 }
 
 func main() {
@@ -87,6 +90,7 @@ func main() {
 		}()
 	}
 	startedAt := time.Now().UTC()
+	started := time.Now()
 	ticker := time.NewTicker(time.Second / time.Duration(*rate))
 	deadline := time.NewTimer(*duration)
 loop:
@@ -107,7 +111,8 @@ loop:
 		samples = append(samples, float64(latency.Microseconds())/1000)
 	}
 	sort.Float64s(samples)
-	report := result{StartedAt: startedAt.Format(time.RFC3339), TargetPerSecond: *rate, DurationSeconds: int(duration.Seconds()), Sent: sent, Accepted: accepted, Failed: failed, P50Millis: percentile(samples, 50), P95Millis: percentile(samples, 95), P99Millis: percentile(samples, 99), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU(), TraceSamples: traceSamples}
+	elapsed := time.Since(started)
+	report := result{StartedAt: startedAt.Format(time.RFC3339), FinishedAt: time.Now().UTC().Format(time.RFC3339), TargetPerSecond: *rate, DurationSeconds: int(duration.Seconds()), ElapsedMillis: float64(elapsed.Microseconds()) / 1000, AchievedPerSecond: float64(accepted) / elapsed.Seconds(), Sent: sent, Accepted: accepted, Failed: failed, P50Millis: percentile(samples, 50), P95Millis: percentile(samples, 95), P99Millis: percentile(samples, 99), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU(), TraceSamples: traceSamples}
 	encoded, _ := json.MarshalIndent(report, "", "  ")
 	if *output != "" {
 		if err := os.WriteFile(*output, append(encoded, '\n'), 0o600); err != nil {

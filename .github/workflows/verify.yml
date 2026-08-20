@@ -31,4 +31,5 @@ jobs:
       - run: go test -race ./...
       - run: pnpm audit --audit-level=high
       - run: bash scripts/secret-scan.sh
+      - run: node scripts/validate-benchmark-report.mjs --self-test
       - run: docker compose config >/dev/null

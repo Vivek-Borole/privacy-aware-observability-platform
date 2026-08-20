@@ -8,3 +8,6 @@ trace lookup report before creating a signed release report.
 
 The benchmark passes only when the actual 5,000-spans/second, 10-minute run
 has no unexplained failures and `lookupPass` is true (`p95Millis <= 3000`).
+The harness calls `scripts/validate-benchmark-report.mjs`, which rejects a
+short run, failed requests, less than 5,000 accepted spans/second, or a slow
+lookup result.

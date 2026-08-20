@@ -52,4 +52,6 @@ fs.writeFileSync(process.env.PAOP_BENCHMARK_LOOKUP, `${JSON.stringify(report, nu
 console.log(JSON.stringify(report));
 NODE
 
+node scripts/validate-benchmark-report.mjs "$raw" "$lookup"
+
 echo "benchmark raw artifacts written under $evidence_dir; review them before making any performance claim"

@@ -64,7 +64,6 @@ services:
     build: .
     environment:
       PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
-      PAOP_KAFKA_BROKERS: redpanda:9092
       PAOP_POLICY_VERSION: local-v1
       PAOP_REDACTION_PATTERNS: "customer-[0-9]+"
     ports: ["18080:8080"]
@@ -73,6 +72,20 @@ services:
       redpanda: {condition: service_started}
       migrate: {condition: service_completed_successfully}
       synthetic-bootstrap: {condition: service_completed_successfully}
+      topic-init: {condition: service_completed_successfully}
+  tailer:
+    build:
+      context: .
+      target: tailer
+    environment:
+      PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
+      PAOP_KAFKA_BROKERS: redpanda:9092
+      PAOP_TAIL_QUIET: 1s
+      PAOP_HEALTHY_SAMPLE_MODULO: 1
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_started}
+      migrate: {condition: service_completed_successfully}
       topic-init: {condition: service_completed_successfully}
   migrate:
     build:
@@ -104,6 +117,7 @@ services:
       postgres: {condition: service_healthy}
       redpanda: {condition: service_started}
       topic-init: {condition: service_completed_successfully}
+      tailer: {condition: service_started}
       clickhouse-migrate: {condition: service_completed_successfully}
   query:
     build:

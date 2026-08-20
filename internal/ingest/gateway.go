@@ -41,6 +41,12 @@ type Envelope struct {
 
 type Publisher interface{ Publish(Envelope) error }
 
+// Stager persists sanitized envelopes before tail sampling. Unlike a broker
+// publisher, it is the acknowledgement boundary for the live gateway.
+type Stager interface {
+	Stage(context.Context, Envelope) error
+}
+
 // Authenticator resolves a caller to exactly one tenant. It deliberately does
 // not accept a tenant identifier supplied by the untrusted client.
 type Authenticator interface {
@@ -71,6 +77,7 @@ func (a *APIKeyAuthenticator) Tenant(_ context.Context, key string) (string, boo
 type Gateway struct {
 	Authenticator Authenticator
 	Publisher     Publisher
+	Stager        Stager
 	PolicyVersion string
 	Patterns      []*regexp.Regexp
 }
@@ -80,7 +87,7 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if g.Authenticator == nil || g.Publisher == nil {
+	if g.Authenticator == nil || (g.Publisher == nil && g.Stager == nil) {
 		http.Error(w, "gateway unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -139,10 +146,14 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"eventId": event.EventID, "status": "accepted"})
 }
 
-func (g Gateway) acceptEvent(_ context.Context, tenant string, event Event) error {
+func (g Gateway) acceptEvent(ctx context.Context, tenant string, event Event) error {
 	attributes, receipt := redaction.Sanitize(event.Attributes, g.PolicyVersion, g.Patterns)
 	event.Attributes = attributes
-	return g.Publisher.Publish(Envelope{TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID})
+	envelope := Envelope{TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID}
+	if g.Stager != nil {
+		return g.Stager.Stage(ctx, envelope)
+	}
+	return g.Publisher.Publish(envelope)
 }
 
 func valid(event Event) bool {

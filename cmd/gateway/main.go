@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/broker"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/ingest"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/metadata"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/observe"
@@ -22,11 +21,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
-	publisher := broker.NewKafkaPublisher(splitRequired("PAOP_KAFKA_BROKERS"))
-	defer publisher.Close()
-
 	patterns := compilePatterns(os.Getenv("PAOP_REDACTION_PATTERNS"))
-	gateway := ingest.Gateway{Authenticator: store, Publisher: publisher, PolicyVersion: valueOr("PAOP_POLICY_VERSION", "v1"), Patterns: patterns}
+	gateway := ingest.Gateway{Authenticator: store, Stager: store, PolicyVersion: valueOr("PAOP_POLICY_VERSION", "v1"), Patterns: patterns}
 	metrics := observe.NewHTTP("gateway")
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics)
@@ -53,7 +49,6 @@ func valueOr(name, fallback string) string {
 	}
 	return fallback
 }
-func splitRequired(name string) []string { return strings.Split(required(name), ",") }
 func compilePatterns(raw string) []*regexp.Regexp {
 	var patterns []*regexp.Regexp
 	for _, expression := range strings.Split(raw, ",") {

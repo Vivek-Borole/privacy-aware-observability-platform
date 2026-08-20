@@ -27,6 +27,32 @@ type Sampler struct {
 	traces map[string]*buffer
 }
 
+// Decide classifies one completed durable trace. It is deterministic for a
+// given trace ID and configuration, so a retried tail worker reaches the same
+// sampling result without consulting mutable process-local state.
+func Decide(traceID string, spans []ingest.Envelope, config Config) Decision {
+	if config.HealthySampleModulo < 1 {
+		config.HealthySampleModulo = 100
+	}
+	if config.SlowThreshold <= 0 {
+		config.SlowThreshold = time.Second
+	}
+	for _, span := range spans {
+		if isError(span) {
+			return Decision{TraceID: traceID, Reason: "retained_error", Retained: true, Spans: spans}
+		}
+	}
+	for _, span := range spans {
+		if isSlow(span, config.SlowThreshold) {
+			return Decision{TraceID: traceID, Reason: "retained_slow", Retained: true, Spans: spans}
+		}
+	}
+	if sample(traceID, config.HealthySampleModulo) {
+		return Decision{TraceID: traceID, Reason: "retained_healthy_sample", Retained: true, Spans: spans}
+	}
+	return Decision{TraceID: traceID, Reason: "dropped_healthy_sample", Retained: false}
+}
+
 func New(config Config) *Sampler {
 	if config.MaxTraces < 1 {
 		config.MaxTraces = 1000

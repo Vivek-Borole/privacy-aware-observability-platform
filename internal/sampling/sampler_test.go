@@ -33,3 +33,20 @@ func TestHealthyCompletionIsDeterministic(t *testing.T) {
 		t.Fatalf("unexpected %#v", decision)
 	}
 }
+
+func TestDecidePrioritizesErrorsThenSlowThenDeterministicSampling(t *testing.T) {
+	config := Config{HealthySampleModulo: 1000, SlowThreshold: time.Second}
+	errorDecision := Decide("trace-error", []ingest.Envelope{span("trace-error", map[string]string{"http.status_code": "503"})}, config)
+	if !errorDecision.Retained || errorDecision.Reason != "retained_error" {
+		t.Fatalf("unexpected error decision: %#v", errorDecision)
+	}
+	slowDecision := Decide("trace-slow", []ingest.Envelope{span("trace-slow", map[string]string{"duration_ms": "1001"})}, config)
+	if !slowDecision.Retained || slowDecision.Reason != "retained_slow" {
+		t.Fatalf("unexpected slow decision: %#v", slowDecision)
+	}
+	first := Decide("trace-stable", []ingest.Envelope{span("trace-stable", nil)}, config)
+	second := Decide("trace-stable", []ingest.Envelope{span("trace-stable", nil)}, config)
+	if first.Retained != second.Retained || first.Reason != second.Reason {
+		t.Fatalf("sampling was not deterministic: %#v %#v", first, second)
+	}
+}

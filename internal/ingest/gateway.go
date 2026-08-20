@@ -47,6 +47,13 @@ type Stager interface {
 	Stage(context.Context, Envelope) error
 }
 
+// BatchStager makes one accepted OTLP request an all-or-nothing durable
+// boundary. Production PostgreSQL staging implements this contract; the small
+// Stager interface remains useful for focused unit tests and simple callers.
+type BatchStager interface {
+	StageBatch(context.Context, []Envelope) error
+}
+
 // Authenticator resolves a caller to exactly one tenant. It deliberately does
 // not accept a tenant identifier supplied by the untrusted client.
 type Authenticator interface {
@@ -147,13 +154,39 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g Gateway) acceptEvent(ctx context.Context, tenant string, event Event) error {
-	attributes, receipt := redaction.Sanitize(event.Attributes, g.PolicyVersion, g.Patterns)
-	event.Attributes = attributes
-	envelope := Envelope{TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID}
-	if g.Stager != nil {
-		return g.Stager.Stage(ctx, envelope)
+	return g.acceptEvents(ctx, tenant, []Event{event})
+}
+
+// acceptEvents sanitizes every event before calling any durable dependency.
+// When the production batch stager is installed, no subset of a syntactically
+// invalid OTLP payload can become visible as accepted telemetry.
+func (g Gateway) acceptEvents(ctx context.Context, tenant string, events []Event) error {
+	envelopes := make([]Envelope, 0, len(events))
+	for _, event := range events {
+		if !valid(event) {
+			return ErrInvalidOTLP
+		}
+		attributes, receipt := redaction.Sanitize(event.Attributes, g.PolicyVersion, g.Patterns)
+		event.Attributes = attributes
+		envelopes = append(envelopes, Envelope{TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID})
 	}
-	return g.Publisher.Publish(envelope)
+	if g.Stager != nil {
+		if batch, ok := g.Stager.(BatchStager); ok {
+			return batch.StageBatch(ctx, envelopes)
+		}
+		for _, envelope := range envelopes {
+			if err := g.Stager.Stage(ctx, envelope); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, envelope := range envelopes {
+		if err := g.Publisher.Publish(envelope); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func valid(event Event) bool {

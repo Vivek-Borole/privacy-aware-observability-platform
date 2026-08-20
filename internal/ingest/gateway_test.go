@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,21 @@ import (
 	"strings"
 	"testing"
 )
+
+type batchStagerStub struct {
+	stageCalls int
+	batches    [][]Envelope
+}
+
+func (s *batchStagerStub) Stage(_ context.Context, _ Envelope) error {
+	s.stageCalls++
+	return nil
+}
+
+func (s *batchStagerStub) StageBatch(_ context.Context, envelopes []Envelope) error {
+	s.batches = append(s.batches, append([]Envelope(nil), envelopes...))
+	return nil
+}
 
 func TestGatewayAuthenticatesThenSanitizesBeforePublish(t *testing.T) {
 	publisher := &MemoryPublisher{}
@@ -75,6 +91,32 @@ func TestGatewayPreservesTechnicalParentSpanIdentifier(t *testing.T) {
 	gateway.ServeHTTP(response, request)
 	if response.Code != http.StatusAccepted || len(publisher.Envelopes) != 1 || publisher.Envelopes[0].Event.ParentSpanID != "span-parent-1" {
 		t.Fatalf("causal relationship lost: status=%d envelopes=%#v", response.Code, publisher.Envelopes)
+	}
+}
+
+func TestGatewayRejectsInvalidLaterOTLPSpanWithoutPublishingPrefix(t *testing.T) {
+	publisher := &MemoryPublisher{}
+	gateway := Gateway{Authenticator: NewAPIKeyAuthenticator(map[string]string{"tenant": "key"}), Publisher: publisher}
+	payload := `{"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"valid-trace","spanId":"valid-span","name":"valid"},{"traceId":"invalid-trace","spanId":"","name":"invalid"}]}]}]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader(payload))
+	request.Header.Set("X-PAOP-API-Key", "key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || len(publisher.Envelopes) != 0 {
+		t.Fatalf("invalid OTLP request staged a prefix: status=%d envelopes=%#v", response.Code, publisher.Envelopes)
+	}
+}
+
+func TestGatewayUsesBatchStagingForOneValidOTLPRequest(t *testing.T) {
+	stager := &batchStagerStub{}
+	gateway := Gateway{Authenticator: NewAPIKeyAuthenticator(map[string]string{"tenant": "key"}), Stager: stager}
+	payload := `{"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"trace-1","spanId":"span-1","name":"one"},{"traceId":"trace-1","spanId":"span-2","name":"two"}]}]}]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader(payload))
+	request.Header.Set("X-PAOP-API-Key", "key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || stager.stageCalls != 0 || len(stager.batches) != 1 || len(stager.batches[0]) != 2 {
+		t.Fatalf("expected one atomic batch: status=%d stage=%d batches=%#v", response.Code, stager.stageCalls, stager.batches)
 	}
 }
 

@@ -20,8 +20,9 @@ flowchart LR
 ```
 
 The gateway accepts bounded OTLP/HTTP JSON traces and logs. It acknowledges an
-event only after its sanitized envelope is durably written to the PostgreSQL
-tail buffer. Redaction happens before that boundary. The tailer retains error
+request only after every span/log record has been validated and its sanitized
+envelopes are durably written as one PostgreSQL transaction to the tail buffer.
+Redaction happens before that boundary. The tailer retains error
 and slow traces, deterministically samples healthy traces, and records every
 retain/drop/pressure decision without content. Retained data reaches Redpanda
 through a durable outbox. The persistence worker deduplicates event identity

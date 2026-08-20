@@ -21,7 +21,7 @@ log_payload='{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-smoke' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-other' PAOP_API_KEY="$other_api_key" go run ./cmd/bootstrap >/dev/null
 
-malformed_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data '{"resourceSpans":[]}')
+malformed_status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data '{"resourceSpans":[]}')
 test "$malformed_status" = '400'
 status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
 test "$status" = '202'

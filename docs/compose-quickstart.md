@@ -17,7 +17,8 @@ tenant-scoped lookup, then rejects any raw seed in PostgreSQL, Redpanda,
 ClickHouse, service logs, and metrics. The Redpanda assertion uses an in-memory
 audit command that reports only a message count, never broker payloads. It also
 proves malformed OTLP/HTTP input is rejected before it reaches the durable
-tail buffer.
+tail buffer; a later-invalid record cannot leave an earlier valid record as a
+partially staged request.
 
 For the investigation console:
 

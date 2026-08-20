@@ -73,12 +73,14 @@ func (g Gateway) acceptOTLPJSON(ctx context.Context, tenant string, body io.Read
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return ErrInvalidOTLP
 	}
-	count := 0
+	events := make([]Event, 0)
 	for _, resourceSpan := range request.ResourceSpans {
 		resource := scalarAttributes(resourceSpan.Resource.Attributes)
 		for _, scopeSpan := range resourceSpan.ScopeSpans {
 			for _, span := range scopeSpan.Spans {
-				count++
+				if len(events) >= maxSpans {
+					return ErrInvalidOTLP
+				}
 				attributes := make(map[string]string, len(resource)+len(span.Attributes)+1)
 				for key, value := range resource {
 					attributes[key] = value
@@ -88,19 +90,17 @@ func (g Gateway) acceptOTLPJSON(ctx context.Context, tenant string, body io.Read
 				}
 				attributes["telemetry.source"] = "otlp_http_json"
 				event := Event{EventID: span.TraceID + ":" + span.SpanID, Signal: "trace", TraceID: span.TraceID, SpanID: span.SpanID, ParentSpanID: span.ParentSpanID, Name: span.Name, Attributes: attributes}
-				if count > maxSpans || !valid(event) {
+				if !valid(event) {
 					return ErrInvalidOTLP
 				}
-				if err := g.acceptEvent(ctx, tenant, event); err != nil {
-					return err
-				}
+				events = append(events, event)
 			}
 		}
 	}
-	if count == 0 {
+	if len(events) == 0 {
 		return ErrInvalidOTLP
 	}
-	return nil
+	return g.acceptEvents(ctx, tenant, events)
 }
 
 // acceptOTLPLogsJSON accepts a constrained OTLP/HTTP JSON log shape. A log may
@@ -117,12 +117,14 @@ func (g Gateway) acceptOTLPLogsJSON(ctx context.Context, tenant string, body io.
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return ErrInvalidOTLP
 	}
-	count := 0
+	events := make([]Event, 0)
 	for _, resourceLog := range request.ResourceLogs {
 		resource := scalarAttributes(resourceLog.Resource.Attributes)
 		for _, scopeLog := range resourceLog.ScopeLogs {
 			for _, record := range scopeLog.LogRecords {
-				count++
+				if len(events) >= maxSpans {
+					return ErrInvalidOTLP
+				}
 				attributes := make(map[string]string, len(resource)+len(record.Attributes)+3)
 				for key, value := range resource {
 					attributes[key] = value
@@ -137,22 +139,20 @@ func (g Gateway) acceptOTLPLogsJSON(ctx context.Context, tenant string, body io.
 					attributes["log.body"] = value
 				}
 				attributes["telemetry.source"] = "otlp_http_json"
-				identity := record.TraceID + ":" + record.SpanID + ":" + record.TimeUnixNano + ":" + strconv.Itoa(count)
+				identity := record.TraceID + ":" + record.SpanID + ":" + record.TimeUnixNano + ":" + strconv.Itoa(len(events)+1)
 				digest := sha256.Sum256([]byte(identity))
 				event := Event{EventID: "log-" + fmtHex(digest[:8]), Signal: "log", TraceID: record.TraceID, SpanID: record.SpanID, Name: "log", Attributes: attributes}
-				if count > maxSpans || !valid(event) {
+				if !valid(event) {
 					return ErrInvalidOTLP
 				}
-				if err := g.acceptEvent(ctx, tenant, event); err != nil {
-					return err
-				}
+				events = append(events, event)
 			}
 		}
 	}
-	if count == 0 {
+	if len(events) == 0 {
 		return ErrInvalidOTLP
 	}
-	return nil
+	return g.acceptEvents(ctx, tenant, events)
 }
 
 func scalarAttributes(attributes []otlpAttribute) map[string]string {

@@ -52,15 +52,43 @@ type TailOutboxMessage struct {
 // drops. The fixed v1 bounds prevent one tenant from consuming unbounded local
 // memory; the buffer itself is PostgreSQL-backed and survives worker restarts.
 func (s *Store) Stage(ctx context.Context, envelope ingest.Envelope) error {
-	traceID := tailTraceID(envelope)
+	return s.StageBatch(ctx, []ingest.Envelope{envelope})
+}
+
+// StageBatch persists a single authenticated request atomically. The gateway
+// has already validated and sanitized every envelope; this method ensures a
+// database failure cannot acknowledge only a prefix of that request.
+func (s *Store) StageBatch(ctx context.Context, envelopes []ingest.Envelope) error {
+	if len(envelopes) == 0 {
+		return nil
+	}
+	tenantID := envelopes[0].TenantID
+	if tenantID == "" {
+		return errors.New("tail staging tenant missing")
+	}
+	for _, envelope := range envelopes {
+		if envelope.TenantID != tenantID {
+			return errors.New("tail staging batch crosses tenants")
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `select pg_advisory_xact_lock(hashtext($1))`, envelope.TenantID); err != nil {
+	if _, err := tx.ExecContext(ctx, `select pg_advisory_xact_lock(hashtext($1))`, tenantID); err != nil {
 		return err
 	}
+	for _, envelope := range envelopes {
+		if err := s.stageTx(ctx, tx, envelope); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) stageTx(ctx context.Context, tx *sql.Tx, envelope ingest.Envelope) error {
+	traceID := tailTraceID(envelope)
 	dedup, err := tx.ExecContext(ctx, `insert into tail_event_keys(event_key, tenant_id, trace_id) values ($1, $2, $3) on conflict (event_key) do nothing`, envelope.EventKey, envelope.TenantID, traceID)
 	if err != nil {
 		return err
@@ -70,7 +98,7 @@ func (s *Store) Stage(ctx context.Context, envelope ingest.Envelope) error {
 		return err
 	}
 	if inserted == 0 {
-		return tx.Commit()
+		return nil
 	}
 	var spanCount int
 	var decidedAt sql.NullTime
@@ -114,12 +142,12 @@ func (s *Store) Stage(ctx context.Context, envelope ingest.Envelope) error {
 		if err := s.evictTailTrace(ctx, tx, envelope.TenantID, traceID, "evicted_span_limit"); err != nil {
 			return err
 		}
-		return tx.Commit()
+		return nil
 	}
 	if _, err := tx.ExecContext(ctx, `update tail_traces set last_seen = now(), generation = generation + 1, span_count = span_count + 1 where tenant_id = $1 and trace_id = $2 and decided_at is null`, envelope.TenantID, traceID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func tailTraceID(envelope ingest.Envelope) string {

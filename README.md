@@ -22,7 +22,7 @@ A local-first, multi-tenant telemetry pipeline and incident-investigation consol
 3. ClickHouse query path and React investigation console.
 4. Failure injection, 5,000 spans/s benchmark, evidence package, and public tagged release.
 
-Read [the architecture](docs/architecture.md), [privacy model](docs/privacy-model.md), and [release gates](docs/release-gates.md) before extending the platform.
+Read [the architecture](docs/architecture.md), [privacy model](docs/privacy-model.md), [threat model](docs/threat-model.md), [retention model](docs/retention-model.md), [Compose quick start](docs/compose-quickstart.md), and [release gates](docs/release-gates.md) before extending the platform.
 
 ## Local foundation check
 

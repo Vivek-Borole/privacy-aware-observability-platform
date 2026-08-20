@@ -1,0 +1,25 @@
+# Compose quick start
+
+Prerequisites: current Docker Desktop or Colima, Go 1.26+, Node 22+, and pnpm
+11+. All examples use fabricated data.
+
+```bash
+pnpm install
+go test -race ./...
+bash scripts/integration-smoke.sh
+```
+
+The smoke command starts PostgreSQL, Redpanda, ClickHouse, migrations, gateway,
+persistence worker, and query API. It creates a local synthetic tenant, sends a
+seeded OTLP/HTTP trace, waits for persistence, verifies redaction and
+tenant-scoped lookup, then rejects any raw seed in service logs.
+
+For the investigation console:
+
+```bash
+pnpm console:dev
+```
+
+Open the Vite address, enter `http://localhost:18081`, a local tenant API key,
+and a trace ID. The API key is sent only as the request header and is not stored
+by the console.

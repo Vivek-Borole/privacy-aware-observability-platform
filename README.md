@@ -45,3 +45,6 @@ bash scripts/integration-smoke.sh
 It bootstraps a local synthetic tenant, submits an OTLP/HTTP trace with seeded
 secret/PII fields, waits for the authorized query result, and fails if the raw
 values appear in query output or service logs.
+
+Run the [recovery integration test](docs/recovery-test.md) to exercise an
+accepted event through a temporary storage outage and duplicate delivery.

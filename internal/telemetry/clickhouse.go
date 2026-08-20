@@ -150,7 +150,10 @@ func (c *ClickHouse) QueryUsage(ctx context.Context, tenantID string) (UsageMetr
 		return UsageMetrics{}, err
 	}
 	values := endpoint.Query()
-	values.Set("query", "SELECT count() AS span_count,uniqExact(trace_id) AS trace_count,countIf(toInt32OrZero(JSONExtractString(attributes_json, 'http.status_code')) >= 500 OR JSONExtractString(attributes_json, 'error') = 'true') AS error_count FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND ingested_at >= now() - INTERVAL 24 HOUR FORMAT JSONEachRow")
+	// ClickHouse quotes 64-bit JSON integers by default. Disable that output
+	// formatting option for this fixed aggregate query so the Go decoder receives
+	// numeric counts, not user-controlled strings.
+	values.Set("query", "SELECT count() AS span_count,uniqExact(trace_id) AS trace_count,countIf(toInt32OrZero(JSONExtractString(attributes_json, 'http.status_code')) >= 500 OR JSONExtractString(attributes_json, 'error') = 'true') AS error_count FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND ingested_at >= now() - INTERVAL 24 HOUR SETTINGS output_format_json_quote_64bit_integers = 0 FORMAT JSONEachRow")
 	values.Set("param_tenant", tenantID)
 	endpoint.RawQuery = values.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)

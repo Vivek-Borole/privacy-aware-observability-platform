@@ -52,6 +52,11 @@ func errorClass(err error) string {
 	if errors.As(err, &databaseError) {
 		return "postgres_" + databaseError.Code
 	}
+	for _, stage := range []string{"claim_tail_traces", "load_tail_trace", "record_tail_decision", "claim_tail_outbox", "publish_tail_outbox", "mark_tail_outbox"} {
+		if strings.Contains(err.Error(), stage) {
+			return stage + "_failure"
+		}
+	}
 	return "tail_failure"
 }
 

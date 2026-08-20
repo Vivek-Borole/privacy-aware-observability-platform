@@ -5,6 +5,7 @@ package tail
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/ingest"
@@ -80,28 +81,28 @@ func (r Runner) Process(ctx context.Context) error {
 	}
 	leases, err := r.Store.ClaimTailTraces(ctx, config.Owner, config.Quiet, config.LeaseTTL, config.BatchSize)
 	if err != nil {
-		return err
+		return fmt.Errorf("claim_tail_traces: %w", err)
 	}
 	for _, lease := range leases {
 		spans, err := r.Store.LoadTailTrace(ctx, lease)
 		if err != nil {
-			return err
+			return fmt.Errorf("load_tail_trace: %w", err)
 		}
 		decision := sampling.Decide(lease.TraceID, spans, config.Sampling)
 		if _, err := r.Store.RecordTailDecision(ctx, config.Owner, lease, decision); err != nil {
-			return err
+			return fmt.Errorf("record_tail_decision: %w", err)
 		}
 	}
 	messages, err := r.Store.ClaimTailOutbox(ctx, config.Owner, config.LeaseTTL, config.BatchSize)
 	if err != nil {
-		return err
+		return fmt.Errorf("claim_tail_outbox: %w", err)
 	}
 	for _, message := range messages {
 		if err := r.Publisher.Publish(message.Envelope); err != nil {
-			return err
+			return fmt.Errorf("publish_tail_outbox: %w", err)
 		}
 		if err := r.Store.MarkTailOutboxPublished(ctx, config.Owner, message.EventKey); err != nil {
-			return err
+			return fmt.Errorf("mark_tail_outbox: %w", err)
 		}
 	}
 	return nil

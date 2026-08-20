@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Exercises an acknowledged broker event across a temporary ClickHouse outage.
+# Exercises a durably staged event across tailer, storage, and consumer restarts.
 set -euo pipefail
 
 if docker compose version >/dev/null 2>&1; then compose=(docker compose); else compose=(docker-compose); fi
@@ -13,11 +13,19 @@ payload='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","val
 "${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate tailer persist gateway query
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-recovery' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 
-"${compose[@]}" pause clickhouse
-status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
+# Stop the tailer before acceptance. The successful gateway response must mean
+# the sanitized envelope is durable in PostgreSQL, not merely resident in the
+# tailer process or already handed to Redpanda.
+"${compose[@]}" stop tailer
+status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
 test "$status" = '202'
+staged=$("${compose[@]}" exec -T postgres psql -U paop -d paop -At -c "select count(*) from tail_buffers where tenant_id = 'synthetic-recovery' and trace_id = 'recovery-trace-001'")
+test "$staged" = '1'
 
-# Let the persistence worker attempt its sink call while ClickHouse is paused.
+# Recover the tailer while storage is unavailable. It can safely release the
+# durable outbox event; the persistence consumer will later redeliver it.
+"${compose[@]}" pause clickhouse
+"${compose[@]}" start tailer
 sleep 6
 "${compose[@]}" unpause clickhouse
 "${compose[@]}" restart persist
@@ -48,4 +56,4 @@ if [[ "$logs" == *'recovery-secret-must-not-persist'* || "$logs" == *'recovery.u
   echo 'recovery test leaked a seeded secret, PII, or key in logs' >&2
   exit 1
 fi
-echo 'recovery smoke passed: brokered event survived delayed storage and duplicate delivery without a duplicate query effect'
+echo 'recovery smoke passed: staged event survived tailer restart, delayed storage, and duplicate delivery without a duplicate query effect'

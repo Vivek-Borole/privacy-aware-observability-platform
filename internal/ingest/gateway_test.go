@@ -45,3 +45,22 @@ func TestGatewayRejectsUnknownKeyWithoutPublishing(t *testing.T) {
 		t.Fatalf("status=%d published=%d", response.Code, len(publisher.Envelopes))
 	}
 }
+
+func TestGatewayAcceptsOTLPJSONAndRedactsBeforePublish(t *testing.T) {
+	publisher := &MemoryPublisher{}
+	gateway := Gateway{Authenticator: NewAPIKeyAuthenticator(map[string]string{"tenant-a": "otlp-test-key"}), Publisher: publisher, Patterns: []*regexp.Regexp{regexp.MustCompile(`customer-\d+`)}}
+	payload := `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}},{"key":"authorization","value":{"stringValue":"Bearer seeded-token"}}]},"scopeSpans":[{"spans":[{"traceId":"trace-otlp-1","spanId":"span-otlp-1","name":"GET /checkout","attributes":[{"key":"customer","value":{"stringValue":"customer-7"}},{"key":"email","value":{"stringValue":"person@example.test"}}]}]}]}]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader(payload))
+	request.Header.Set("X-PAOP-API-Key", "otlp-test-key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || len(publisher.Envelopes) != 1 {
+		t.Fatalf("status=%d published=%d", response.Code, len(publisher.Envelopes))
+	}
+	serialized, _ := json.Marshal(publisher.Envelopes[0])
+	for _, forbidden := range []string{"seeded-token", "person@example.test", "customer-7"} {
+		if strings.Contains(string(serialized), forbidden) {
+			t.Fatalf("sanitized OTLP envelope leaked %q", forbidden)
+		}
+	}
+}

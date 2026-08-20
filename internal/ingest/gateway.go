@@ -19,6 +19,7 @@ const (
 	maxBodyBytes   = 1 << 20
 	maxAttributes  = 64
 	maxStringBytes = 4 << 10
+	maxSpans       = 100
 )
 
 type Event struct {
@@ -73,7 +74,7 @@ type Gateway struct {
 }
 
 func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || r.URL.Path != "/v1/ingest" {
+	if r.Method != http.MethodPost || (r.URL.Path != "/v1/ingest" && r.URL.Path != "/v1/traces") {
 		http.NotFound(w, r)
 		return
 	}
@@ -92,6 +93,20 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	body := http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	defer body.Close()
+	if r.URL.Path == "/v1/traces" {
+		if err := g.acceptOTLPJSON(r.Context(), tenant, body); err != nil {
+			if errors.Is(err, ErrInvalidOTLP) {
+				http.Error(w, "invalid telemetry envelope", http.StatusBadRequest)
+			} else {
+				http.Error(w, "durable publish unavailable", http.StatusServiceUnavailable)
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{}`))
+		return
+	}
 	var event Event
 	decoder := json.NewDecoder(body)
 	decoder.DisallowUnknownFields()
@@ -99,16 +114,19 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid telemetry envelope", http.StatusBadRequest)
 		return
 	}
-	attributes, receipt := redaction.Sanitize(event.Attributes, g.PolicyVersion, g.Patterns)
-	event.Attributes = attributes
-	envelope := Envelope{TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID}
-	if err := g.Publisher.Publish(envelope); err != nil {
+	if err := g.acceptEvent(r.Context(), tenant, event); err != nil {
 		http.Error(w, "durable publish unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"eventId": event.EventID, "status": "accepted"})
+}
+
+func (g Gateway) acceptEvent(_ context.Context, tenant string, event Event) error {
+	attributes, receipt := redaction.Sanitize(event.Attributes, g.PolicyVersion, g.Patterns)
+	event.Attributes = attributes
+	return g.Publisher.Publish(Envelope{TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID})
 }
 
 func valid(event Event) bool {

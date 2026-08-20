@@ -1,0 +1,28 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Privacy-Aware Observability Platform API",
+    "version": "v1",
+    "description": "Local-first, tenant-scoped APIs for sanitized telemetry. The server derives tenant identity only from X-PAOP-API-Key; callers must not supply a tenant ID."
+  },
+  "servers": [{"url": "http://localhost:18080", "description": "local ingest API"}, {"url": "http://localhost:18081", "description": "local query API"}],
+  "components": {
+    "securitySchemes": {"TenantApiKey": {"type": "apiKey", "in": "header", "name": "X-PAOP-API-Key"}},
+    "schemas": {
+      "Error": {"type": "object", "properties": {"error": {"type": "string"}}},
+      "Trace": {"type": "object", "required": ["traceId", "spans"], "properties": {"traceId": {"type": "string"}, "spans": {"type": "array", "items": {"$ref": "#/components/schemas/Span"}}}},
+      "Span": {"type": "object", "properties": {"eventKey": {"type": "string"}, "spanId": {"type": "string"}, "name": {"type": "string"}, "attributes": {"type": "object", "additionalProperties": {"type": "string"}}, "policyVersion": {"type": "string"}, "redactedPaths": {"type": "array", "items": {"type": "string"}}, "ingestedAt": {"type": "string"}}},
+      "Metrics": {"type": "object", "required": ["windowHours", "spanCount", "traceCount", "errorCount"], "properties": {"windowHours": {"type": "integer"}, "spanCount": {"type": "integer"}, "traceCount": {"type": "integer"}, "errorCount": {"type": "integer"}}},
+      "Dependency": {"type": "object", "required": ["source", "target", "count"], "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "count": {"type": "integer"}}},
+      "DeletionReceipt": {"type": "object", "required": ["state", "scope"], "properties": {"state": {"const": "mutation_requested"}, "scope": {"const": "all_sanitized_telemetry"}}}
+    },
+    "responses": {"Unauthorized": {"description": "API key missing, disabled, or invalid"}, "Unavailable": {"description": "Required durable dependency unavailable"}}
+  },
+  "paths": {
+    "/v1/traces": {"post": {"summary": "Accept constrained OTLP/HTTP JSON after tenant authentication and pre-broker redaction", "security": [{"TenantApiKey": []}], "responses": {"202": {"description": "sanitized event durably accepted"}, "400": {"description": "invalid bounded telemetry envelope"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "503": {"$ref": "#/components/responses/Unavailable"}}}},
+    "/v1/traces/{traceId}": {"get": {"summary": "Get sanitized spans for one trace in the authenticated tenant", "security": [{"TenantApiKey": []}], "parameters": [{"name": "traceId", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$"}}], "responses": {"200": {"description": "sanitized trace", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Trace"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "503": {"$ref": "#/components/responses/Unavailable"}}}},
+    "/v1/metrics": {"get": {"summary": "Get derived 24-hour tenant counts without raw attributes", "security": [{"TenantApiKey": []}], "responses": {"200": {"description": "derived metrics", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Metrics"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}}},
+    "/v1/dependencies": {"get": {"summary": "Get derived 24-hour tenant service edges", "security": [{"TenantApiKey": []}], "responses": {"200": {"description": "derived topology", "content": {"application/json": {"schema": {"type": "object", "properties": {"windowHours": {"type": "integer"}, "dependencies": {"type": "array", "items": {"$ref": "#/components/schemas/Dependency"}}}}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}}},
+    "/v1/retention/delete": {"post": {"summary": "Request deletion of all authenticated tenant sanitized telemetry", "description": "Schedules an asynchronous ClickHouse mutation and writes an audit receipt. It never promises immediate physical deletion.", "security": [{"TenantApiKey": []}], "parameters": [{"name": "X-PAOP-Delete-Confirm", "in": "header", "required": true, "schema": {"const": "DELETE_SANITIZED_TELEMETRY"}}], "responses": {"200": {"description": "mutation requested", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeletionReceipt"}}}}, "400": {"description": "explicit confirmation missing"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "503": {"$ref": "#/components/responses/Unavailable"}}}}
+  }
+}

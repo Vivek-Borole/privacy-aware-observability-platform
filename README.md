@@ -28,6 +28,8 @@ A local-first, multi-tenant telemetry pipeline and incident-investigation consol
 
 Read [the architecture](docs/architecture.md), [privacy model](docs/privacy-model.md), [threat model](docs/threat-model.md), [retention model](docs/retention-model.md), [Compose quick start](docs/compose-quickstart.md), and [release gates](docs/release-gates.md) before extending the platform.
 
+The current versioned machine-readable interface is [OpenAPI v1](api/openapi-v1.json). It documents only the implemented local APIs; it is not a public SaaS promise.
+
 ## Local foundation check
 
 ```bash

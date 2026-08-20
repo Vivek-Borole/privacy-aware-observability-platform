@@ -39,7 +39,7 @@ func (s *storeStub) QueryTrace(_ context.Context, tenant, trace string) ([]telem
 }
 func (s *storeStub) QueryUsage(_ context.Context, tenant string) (telemetry.UsageMetrics, error) {
 	s.tenant = tenant
-	return telemetry.UsageMetrics{WindowHours: 24, SpanCount: 12, TraceCount: 3, ErrorCount: 1}, nil
+	return telemetry.UsageMetrics{WindowHours: 24, SpanCount: 12, TraceCount: 3, LogCount: 4, ErrorCount: 1}, nil
 }
 func (s *storeStub) QueryDependencies(_ context.Context, tenant string) ([]telemetry.Dependency, error) {
 	s.tenant = tenant

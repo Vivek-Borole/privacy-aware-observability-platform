@@ -28,6 +28,7 @@ type row struct {
 	TenantID       string   `json:"tenant_id"`
 	EventKey       string   `json:"event_key"`
 	EventID        string   `json:"event_id"`
+	SignalType     string   `json:"signal_type"`
 	TraceID        string   `json:"trace_id"`
 	SpanID         string   `json:"span_id"`
 	ParentSpanID   string   `json:"parent_span_id"`
@@ -41,6 +42,7 @@ type row struct {
 type Span struct {
 	EventKey      string            `json:"eventKey"`
 	EventID       string            `json:"eventId"`
+	SignalType    string            `json:"signalType"`
 	TraceID       string            `json:"traceId"`
 	SpanID        string            `json:"spanId"`
 	ParentSpanID  string            `json:"parentSpanId,omitempty"`
@@ -58,6 +60,7 @@ type UsageMetrics struct {
 	SpanCount   int64 `json:"spanCount"`
 	ErrorCount  int64 `json:"errorCount"`
 	TraceCount  int64 `json:"traceCount"`
+	LogCount    int64 `json:"logCount"`
 }
 
 // Dependency is a derived, tenant-scoped service edge. It intentionally omits
@@ -73,7 +76,7 @@ func (c *ClickHouse) Persist(ctx context.Context, envelope ingest.Envelope) erro
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(row{TenantID: envelope.TenantID, EventKey: envelope.EventKey, EventID: envelope.Event.EventID, TraceID: envelope.Event.TraceID, SpanID: envelope.Event.SpanID, ParentSpanID: envelope.Event.ParentSpanID, Name: envelope.Event.Name, AttributesJSON: string(attributes), PolicyVersion: envelope.Policy.PolicyVersion, RedactedPaths: envelope.Policy.RedactedPaths, IngestedAt: time.Now().UTC().Format("2006-01-02 15:04:05.000")})
+	payload, err := json.Marshal(row{TenantID: envelope.TenantID, EventKey: envelope.EventKey, EventID: envelope.Event.EventID, SignalType: signalType(envelope.Event), TraceID: envelope.Event.TraceID, SpanID: envelope.Event.SpanID, ParentSpanID: envelope.Event.ParentSpanID, Name: envelope.Event.Name, AttributesJSON: string(attributes), PolicyVersion: envelope.Policy.PolicyVersion, RedactedPaths: envelope.Policy.RedactedPaths, IngestedAt: time.Now().UTC().Format("2006-01-02 15:04:05.000")})
 	if err != nil {
 		return err
 	}
@@ -117,7 +120,7 @@ func (c *ClickHouse) QueryTrace(ctx context.Context, tenantID, traceID string) (
 		return nil, err
 	}
 	values := endpoint.Query()
-	values.Set("query", "SELECT event_key,event_id,trace_id,span_id,parent_span_id,name,attributes_json,policy_version,redacted_paths,toString(ingested_at) AS ingested_at FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND trace_id = {trace:String} ORDER BY ingested_at ASC FORMAT JSONEachRow")
+	values.Set("query", "SELECT event_key,event_id,signal_type,trace_id,span_id,parent_span_id,name,attributes_json,policy_version,redacted_paths,toString(ingested_at) AS ingested_at FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND trace_id = {trace:String} ORDER BY ingested_at ASC FORMAT JSONEachRow")
 	values.Set("param_tenant", tenantID)
 	values.Set("param_trace", traceID)
 	endpoint.RawQuery = values.Encode()
@@ -146,7 +149,7 @@ func (c *ClickHouse) QueryTrace(ctx context.Context, tenantID, traceID string) (
 		if err := json.Unmarshal([]byte(stored.AttributesJSON), &attributes); err != nil {
 			return nil, err
 		}
-		spans = append(spans, Span{EventKey: stored.EventKey, EventID: stored.EventID, TraceID: stored.TraceID, SpanID: stored.SpanID, ParentSpanID: stored.ParentSpanID, Name: stored.Name, Attributes: attributes, PolicyVersion: stored.PolicyVersion, RedactedPaths: stored.RedactedPaths, IngestedAt: stored.IngestedAt})
+		spans = append(spans, Span{EventKey: stored.EventKey, EventID: stored.EventID, SignalType: stored.SignalType, TraceID: stored.TraceID, SpanID: stored.SpanID, ParentSpanID: stored.ParentSpanID, Name: stored.Name, Attributes: attributes, PolicyVersion: stored.PolicyVersion, RedactedPaths: stored.RedactedPaths, IngestedAt: stored.IngestedAt})
 	}
 	return spans, nil
 }
@@ -163,7 +166,7 @@ func (c *ClickHouse) QueryUsage(ctx context.Context, tenantID string) (UsageMetr
 	// ClickHouse quotes 64-bit JSON integers by default. Disable that output
 	// formatting option for this fixed aggregate query so the Go decoder receives
 	// numeric counts, not user-controlled strings.
-	values.Set("query", "SELECT count() AS span_count,uniqExact(trace_id) AS trace_count,countIf(toInt32OrZero(JSONExtractString(attributes_json, 'http.status_code')) >= 500 OR JSONExtractString(attributes_json, 'error') = 'true') AS error_count FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND ingested_at >= now() - INTERVAL 24 HOUR SETTINGS output_format_json_quote_64bit_integers = 0 FORMAT JSONEachRow")
+	values.Set("query", "SELECT countIf(signal_type = 'trace') AS span_count,uniqExactIf(trace_id, signal_type = 'trace') AS trace_count,countIf(signal_type = 'trace' AND (toInt32OrZero(JSONExtractString(attributes_json, 'http.status_code')) >= 500 OR JSONExtractString(attributes_json, 'error') = 'true')) AS error_count,countIf(signal_type = 'log') AS log_count FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND ingested_at >= now() - INTERVAL 24 HOUR SETTINGS output_format_json_quote_64bit_integers = 0 FORMAT JSONEachRow")
 	values.Set("param_tenant", tenantID)
 	endpoint.RawQuery = values.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)
@@ -182,11 +185,12 @@ func (c *ClickHouse) QueryUsage(ctx context.Context, tenantID string) (UsageMetr
 		SpanCount  int64 `json:"span_count"`
 		TraceCount int64 `json:"trace_count"`
 		ErrorCount int64 `json:"error_count"`
+		LogCount   int64 `json:"log_count"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		return UsageMetrics{}, err
 	}
-	return UsageMetrics{WindowHours: 24, SpanCount: result.SpanCount, TraceCount: result.TraceCount, ErrorCount: result.ErrorCount}, nil
+	return UsageMetrics{WindowHours: 24, SpanCount: result.SpanCount, TraceCount: result.TraceCount, ErrorCount: result.ErrorCount, LogCount: result.LogCount}, nil
 }
 
 func (c *ClickHouse) QueryDependencies(ctx context.Context, tenantID string) ([]Dependency, error) {
@@ -195,7 +199,7 @@ func (c *ClickHouse) QueryDependencies(ctx context.Context, tenantID string) ([]
 		return nil, err
 	}
 	values := endpoint.Query()
-	values.Set("query", "SELECT JSONExtractString(attributes_json, 'service.name') AS source,JSONExtractString(attributes_json, 'peer.service') AS target,count() AS edge_count FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND ingested_at >= now() - INTERVAL 24 HOUR AND source != '' AND target != '' GROUP BY source,target ORDER BY edge_count DESC SETTINGS output_format_json_quote_64bit_integers = 0 FORMAT JSONEachRow")
+	values.Set("query", "SELECT JSONExtractString(attributes_json, 'service.name') AS source,JSONExtractString(attributes_json, 'peer.service') AS target,count() AS edge_count FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND signal_type = 'trace' AND ingested_at >= now() - INTERVAL 24 HOUR AND source != '' AND target != '' GROUP BY source,target ORDER BY edge_count DESC SETTINGS output_format_json_quote_64bit_integers = 0 FORMAT JSONEachRow")
 	values.Set("param_tenant", tenantID)
 	endpoint.RawQuery = values.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)
@@ -282,4 +286,11 @@ func (c *ClickHouse) DeleteTenantTelemetry(ctx context.Context, tenantID string)
 		return fmt.Errorf("clickhouse status class %d", response.StatusCode/100)
 	}
 	return nil
+}
+
+func signalType(event ingest.Event) string {
+	if event.Signal == "log" {
+		return "log"
+	}
+	return "trace"
 }

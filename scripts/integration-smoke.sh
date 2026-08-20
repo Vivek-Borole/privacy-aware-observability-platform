@@ -13,11 +13,14 @@ gateway_url='http://127.0.0.1:18080/v1/traces'
 query_url='http://127.0.0.1:18081/v1/traces/smoke-trace-001'
 metrics_url='http://127.0.0.1:18081/v1/metrics'
 payload='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}},{"key":"authorization","value":{"stringValue":"Bearer smoke-secret-must-not-persist"}}]},"scopeSpans":[{"spans":[{"traceId":"smoke-trace-001","spanId":"smoke-span-001","name":"synthetic.checkout","attributes":[{"key":"customer.email","value":{"stringValue":"smoke.user@example.test"}},{"key":"http.status_code","value":{"intValue":"200"}}]}]}]}]}'
+log_payload='{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"123456","traceId":"smoke-trace-001","spanId":"smoke-span-001","severityText":"ERROR","body":{"stringValue":"smoke.user@example.test customer-77"},"attributes":[{"key":"cookie","value":{"stringValue":"session=smoke-secret-must-not-persist"}}]}]}]}]}'
 
 "${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate persist gateway query prometheus grafana synthetic-worker synthetic-downstream synthetic-api
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-smoke' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 
 status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
+test "$status" = '202'
+status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST 'http://127.0.0.1:18080/v1/logs' --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$log_payload")
 test "$status" = '202'
 
 for _ in {1..30}; do
@@ -26,6 +29,7 @@ for _ in {1..30}; do
   sleep 1
 done
 [[ "$result" == *'synthetic.checkout'* ]]
+[[ "$result" == *'"signalType":"log"'* ]]
 [[ "$result" == *'[REDACTED]'* ]]
 [[ "$result" == *'[REDACTED_EMAIL]'* ]]
 if [[ "$result" == *'smoke-secret-must-not-persist'* || "$result" == *'smoke.user@example.test'* ]]; then
@@ -57,13 +61,14 @@ dependencies=$(curl --silent --show-error 'http://127.0.0.1:18081/v1/dependencie
 
 for _ in {1..30}; do
   metrics=$(curl --silent --show-error "$metrics_url" --header "x-paop-api-key: $api_key" || true)
-  if [[ "$metrics" == *'"spanCount":1'* ]]; then break; fi
+  if [[ "$metrics" == *'"spanCount":1'* && "$metrics" == *'"logCount":1'* ]]; then break; fi
   sleep 1
 done
 echo "derived metrics response: $metrics"
 [[ "$metrics" == *'"windowHours":24'* ]]
 [[ "$metrics" == *'"spanCount":1'* ]]
 [[ "$metrics" == *'"traceCount":1'* ]]
+[[ "$metrics" == *'"logCount":1'* ]]
 [[ "$metrics" == *'"errorCount":0'* ]]
 
 logs=$("${compose[@]}" logs --no-color gateway persist query)

@@ -31,21 +31,22 @@ func Sanitize(attributes map[string]string, policyVersion string, patterns []*re
 			receipt.RedactedPaths = append(receipt.RedactedPaths, path)
 			continue
 		}
-		if emailPattern.MatchString(value) {
-			out[key] = emailPattern.ReplaceAllString(value, "[REDACTED_EMAIL]")
-			receipt.RedactedPaths = append(receipt.RedactedPaths, path)
-			continue
-		}
+		redactedValue := value
 		redacted := false
+		if emailPattern.MatchString(redactedValue) {
+			redactedValue = emailPattern.ReplaceAllString(redactedValue, "[REDACTED_EMAIL]")
+			redacted = true
+		}
 		for _, pattern := range patterns {
-			if pattern.MatchString(value) {
-				out[key] = pattern.ReplaceAllString(value, "[REDACTED_PATTERN]")
-				receipt.RedactedPaths = append(receipt.RedactedPaths, path)
+			if pattern.MatchString(redactedValue) {
+				redactedValue = pattern.ReplaceAllString(redactedValue, "[REDACTED_PATTERN]")
 				redacted = true
-				break
 			}
 		}
-		if !redacted {
+		if redacted {
+			out[key] = redactedValue
+			receipt.RedactedPaths = append(receipt.RedactedPaths, path)
+		} else {
 			out[key] = value
 		}
 	}

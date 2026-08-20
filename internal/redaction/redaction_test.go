@@ -28,3 +28,13 @@ func TestSanitizeRedactsBeforePersistence(t *testing.T) {
 		t.Fatalf("expected four redaction receipts, got %#v", receipt)
 	}
 }
+
+func TestSanitizeAppliesEmailAndConfiguredPatternsToOneValue(t *testing.T) {
+	result, receipt := Sanitize(map[string]string{"log.body": "person@example.test customer-7"}, "policy-test", []*regexp.Regexp{regexp.MustCompile(`customer-\d+`)})
+	if strings.Contains(result["log.body"], "person@example.test") || strings.Contains(result["log.body"], "customer-7") {
+		t.Fatalf("combined redaction leaked value: %q", result["log.body"])
+	}
+	if len(receipt.RedactedPaths) != 1 || receipt.RedactedPaths[0] != "attributes.log.body" {
+		t.Fatalf("unexpected receipt: %#v", receipt)
+	}
+}

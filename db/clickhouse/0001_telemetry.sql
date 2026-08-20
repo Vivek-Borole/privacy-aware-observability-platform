@@ -4,6 +4,7 @@ create table if not exists telemetry.spans (
   tenant_id String,
   event_key String,
   event_id String,
+  signal_type LowCardinality(String) default 'trace',
   trace_id String,
   span_id String,
   parent_span_id String,

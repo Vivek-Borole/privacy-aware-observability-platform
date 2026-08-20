@@ -7,11 +7,12 @@ A local-first, multi-tenant telemetry pipeline and incident-investigation consol
 - A synthetic TypeScript gateway, Go downstream service, and asynchronous worker
   emit one distributed, trace-ID-propagated checkout flow. It is fabricated
   demo traffic only and never reaches an external service.
-- A Go gateway authenticates tenants, validates bounded input, redacts sensitive attributes before durable publication, and records policy-versioned redaction receipts.
+- A Go gateway authenticates tenants, validates bounded OTLP/HTTP JSON traces and logs, redacts sensitive attributes before durable publication, and records policy-versioned redaction receipts.
 - Redpanda provides durable streaming, ClickHouse stores sanitized telemetry, and PostgreSQL holds tenant, API-key, retention, and policy metadata.
-- The React console shows tenant-scoped sanitized trace details and a derived
-  24-hour usage/error summary. Async causal links, dependency mapping, and
-  incident timelines remain release-gated follow-up work.
+- The React console shows tenant-scoped sanitized traces (including trace-linked
+  logs), a derived 24-hour usage/error summary, service dependency map, and
+  safe audit timeline. These are local development capabilities, not a public
+  SaaS or release-readiness claim.
 
 ## Non-goals
 

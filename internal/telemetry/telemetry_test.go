@@ -31,8 +31,25 @@ func TestClickHousePersistsOnlySanitizedEnvelope(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored.EventKey != "tenant-a:e1" || stored.PolicyVersion != "v1" || stored.ParentSpanID != "parent-1" {
+	if stored.EventKey != "tenant-a:e1" || stored.PolicyVersion != "v1" || stored.ParentSpanID != "parent-1" || stored.SignalType != "trace" {
 		t.Fatalf("unexpected row %#v", stored)
+	}
+}
+
+func TestClickHouseLabelsLogRecordsWithoutPersistingRawContent(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { body = mustRead(t, r); w.WriteHeader(http.StatusOK) }))
+	defer server.Close()
+	envelope := ingest.Envelope{TenantID: "tenant-a", EventKey: "tenant-a:log-1", Event: ingest.Event{EventID: "log-1", Signal: "log", Name: "log", Attributes: map[string]string{"log.body": "[REDACTED_EMAIL]"}}, Policy: redaction.Receipt{PolicyVersion: "v1", RedactedPaths: []string{"attributes.log.body"}}}
+	if err := NewClickHouse(server.URL).Persist(context.Background(), envelope); err != nil {
+		t.Fatal(err)
+	}
+	var stored row
+	if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.SignalType != "log" || stored.TraceID != "" || stored.SpanID != "" {
+		t.Fatalf("unexpected log row %#v", stored)
 	}
 }
 

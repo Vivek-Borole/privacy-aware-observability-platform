@@ -24,6 +24,7 @@ const (
 
 type Event struct {
 	EventID      string            `json:"eventId"`
+	Signal       string            `json:"signal,omitempty"`
 	TraceID      string            `json:"traceId"`
 	SpanID       string            `json:"spanId"`
 	ParentSpanID string            `json:"parentSpanId,omitempty"`
@@ -75,7 +76,7 @@ type Gateway struct {
 }
 
 func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || (r.URL.Path != "/v1/ingest" && r.URL.Path != "/v1/traces") {
+	if r.Method != http.MethodPost || (r.URL.Path != "/v1/ingest" && r.URL.Path != "/v1/traces" && r.URL.Path != "/v1/logs") {
 		http.NotFound(w, r)
 		return
 	}
@@ -96,6 +97,20 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer body.Close()
 	if r.URL.Path == "/v1/traces" {
 		if err := g.acceptOTLPJSON(r.Context(), tenant, body); err != nil {
+			if errors.Is(err, ErrInvalidOTLP) {
+				http.Error(w, "invalid telemetry envelope", http.StatusBadRequest)
+			} else {
+				http.Error(w, "durable publish unavailable", http.StatusServiceUnavailable)
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{}`))
+		return
+	}
+	if r.URL.Path == "/v1/logs" {
+		if err := g.acceptOTLPLogsJSON(r.Context(), tenant, body); err != nil {
 			if errors.Is(err, ErrInvalidOTLP) {
 				http.Error(w, "invalid telemetry envelope", http.StatusBadRequest)
 			} else {
@@ -131,7 +146,14 @@ func (g Gateway) acceptEvent(_ context.Context, tenant string, event Event) erro
 }
 
 func valid(event Event) bool {
-	if event.EventID == "" || event.TraceID == "" || event.SpanID == "" || event.Name == "" || len(event.Attributes) > maxAttributes {
+	if event.EventID == "" || event.Name == "" || len(event.Attributes) > maxAttributes || len(event.EventID) > 256 || len(event.TraceID) > 128 || len(event.SpanID) > 128 || len(event.ParentSpanID) > 128 || len(event.Name) > 512 {
+		return false
+	}
+	if event.Signal == "" || event.Signal == "trace" {
+		if event.TraceID == "" || event.SpanID == "" {
+			return false
+		}
+	} else if event.Signal != "log" {
 		return false
 	}
 	for key, value := range event.Attributes {

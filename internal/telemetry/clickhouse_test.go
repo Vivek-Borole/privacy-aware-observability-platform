@@ -16,14 +16,14 @@ func TestQueryUsageBindsTenantAndReturnsCounts(t *testing.T) {
 		if query := r.URL.Query().Get("query"); !strings.Contains(query, "INTERVAL 24 HOUR") || !strings.Contains(query, "tenant_id = {tenant:String}") || !strings.Contains(query, "output_format_json_quote_64bit_integers = 0") {
 			t.Fatalf("unexpected query %q", query)
 		}
-		_, _ = w.Write([]byte(`{"span_count":12,"trace_count":3,"error_count":1}`))
+		_, _ = w.Write([]byte(`{"span_count":12,"trace_count":3,"error_count":1,"log_count":4}`))
 	}))
 	defer server.Close()
 	metrics, err := NewClickHouse(server.URL).QueryUsage(context.Background(), "tenant-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.WindowHours != 24 || metrics.SpanCount != 12 || metrics.TraceCount != 3 || metrics.ErrorCount != 1 {
+	if metrics.WindowHours != 24 || metrics.SpanCount != 12 || metrics.TraceCount != 3 || metrics.ErrorCount != 1 || metrics.LogCount != 4 {
 		t.Fatalf("unexpected metrics: %#v", metrics)
 	}
 }

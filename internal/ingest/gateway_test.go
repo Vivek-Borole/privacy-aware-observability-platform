@@ -77,3 +77,38 @@ func TestGatewayPreservesTechnicalParentSpanIdentifier(t *testing.T) {
 		t.Fatalf("causal relationship lost: status=%d envelopes=%#v", response.Code, publisher.Envelopes)
 	}
 }
+
+func TestGatewayAcceptsOTLPLogsAndRedactsBeforePublish(t *testing.T) {
+	publisher := &MemoryPublisher{}
+	gateway := Gateway{Authenticator: NewAPIKeyAuthenticator(map[string]string{"tenant-a": "log-test-key"}), Publisher: publisher, Patterns: []*regexp.Regexp{regexp.MustCompile(`customer-\d+`)}}
+	payload := `{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}},{"key":"authorization","value":{"stringValue":"Bearer seeded-token"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"123","traceId":"trace-log-1","spanId":"span-log-1","severityText":"ERROR","body":{"stringValue":"person@example.test customer-7"},"attributes":[{"key":"cookie","value":{"stringValue":"session=seeded-cookie"}}]}]}]}]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/logs", strings.NewReader(payload))
+	request.Header.Set("X-PAOP-API-Key", "log-test-key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || len(publisher.Envelopes) != 1 {
+		t.Fatalf("status=%d published=%d", response.Code, len(publisher.Envelopes))
+	}
+	envelope := publisher.Envelopes[0]
+	if envelope.Event.Signal != "log" || envelope.Event.TraceID != "trace-log-1" || envelope.Event.SpanID != "span-log-1" {
+		t.Fatalf("unexpected log identity: %#v", envelope.Event)
+	}
+	serialized, _ := json.Marshal(envelope)
+	for _, forbidden := range []string{"seeded-token", "person@example.test", "customer-7", "seeded-cookie"} {
+		if strings.Contains(string(serialized), forbidden) {
+			t.Fatalf("sanitized log envelope leaked %q", forbidden)
+		}
+	}
+}
+
+func TestGatewayRejectsLogWithNoUsableContent(t *testing.T) {
+	publisher := &MemoryPublisher{}
+	gateway := Gateway{Authenticator: NewAPIKeyAuthenticator(map[string]string{"tenant-a": "log-test-key"}), Publisher: publisher}
+	request := httptest.NewRequest(http.MethodPost, "/v1/logs", strings.NewReader(`{"resourceLogs":[{"scopeLogs":[{"logRecords":[{}]}]}]}`))
+	request.Header.Set("X-PAOP-API-Key", "log-test-key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || len(publisher.Envelopes) != 1 || publisher.Envelopes[0].Event.EventID == "" {
+		t.Fatalf("a bounded content-free OTLP log must receive a safe event ID: status=%d envelopes=%#v", response.Code, publisher.Envelopes)
+	}
+}

@@ -61,6 +61,17 @@ func (s *Store) Stage(ctx context.Context, envelope ingest.Envelope) error {
 	if _, err := tx.ExecContext(ctx, `select pg_advisory_xact_lock(hashtext($1))`, envelope.TenantID); err != nil {
 		return err
 	}
+	dedup, err := tx.ExecContext(ctx, `insert into tail_event_keys(event_key, tenant_id, trace_id) values ($1, $2, $3) on conflict (event_key) do nothing`, envelope.EventKey, envelope.TenantID, traceID)
+	if err != nil {
+		return err
+	}
+	inserted, err := dedup.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if inserted == 0 {
+		return tx.Commit()
+	}
 	var spanCount int
 	var decidedAt sql.NullTime
 	err = tx.QueryRowContext(ctx, `select span_count, decided_at from tail_traces where tenant_id = $1 and trace_id = $2 for update`, envelope.TenantID, traceID).Scan(&spanCount, &decidedAt)
@@ -88,16 +99,16 @@ func (s *Store) Stage(ctx context.Context, envelope ingest.Envelope) error {
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `insert into tail_buffers(event_key, tenant_id, trace_id, envelope) values ($1, $2, $3, $4::jsonb) on conflict (event_key) do nothing`, envelope.EventKey, envelope.TenantID, traceID, string(payload))
+	result, err := tx.ExecContext(ctx, `insert into tail_buffers(event_key, tenant_id, trace_id, envelope) values ($1, $2, $3, $4::jsonb)`, envelope.EventKey, envelope.TenantID, traceID, string(payload))
 	if err != nil {
 		return err
 	}
-	inserted, err := result.RowsAffected()
+	bufferInserted, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	if inserted == 0 {
-		return tx.Commit()
+	if bufferInserted != 1 {
+		return errors.New("tail buffer insert did not create one row")
 	}
 	if spanCount >= defaultTailMaxSpans {
 		if err := s.evictTailTrace(ctx, tx, envelope.TenantID, traceID, "evicted_span_limit"); err != nil {

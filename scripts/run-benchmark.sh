@@ -12,7 +12,7 @@ raw="$evidence_dir/ingestion-benchmark.raw.json"
 lookup="$evidence_dir/lookup-benchmark.raw.json"
 environment="$evidence_dir/benchmark-environment.txt"
 
-"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate persist gateway query
+"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate tailer persist gateway query
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-benchmark' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 
 {

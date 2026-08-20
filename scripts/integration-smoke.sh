@@ -12,6 +12,7 @@ postgres_url='postgres://paop:paop-local-only@127.0.0.1:5433/paop?sslmode=disabl
 gateway_url='http://127.0.0.1:18080/v1/traces'
 query_url='http://127.0.0.1:18081/v1/traces/smoke-trace-001'
 metrics_url='http://127.0.0.1:18081/v1/metrics'
+sampling_url='http://127.0.0.1:18081/v1/sampling'
 payload='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}},{"key":"authorization","value":{"stringValue":"Bearer smoke-secret-must-not-persist"}}]},"scopeSpans":[{"spans":[{"traceId":"smoke-trace-001","spanId":"smoke-span-001","name":"synthetic.checkout","attributes":[{"key":"customer.email","value":{"stringValue":"smoke.user@example.test"}},{"key":"http.status_code","value":{"intValue":"200"}}]}]}]}]}'
 log_payload='{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"123456","traceId":"smoke-trace-001","spanId":"smoke-span-001","severityText":"ERROR","body":{"stringValue":"smoke.user@example.test customer-77"},"attributes":[{"key":"cookie","value":{"stringValue":"session=smoke-secret-must-not-persist"}}]}]}]}]}'
 
@@ -34,6 +35,18 @@ done
 [[ "$result" == *'[REDACTED_EMAIL]'* ]]
 if [[ "$result" == *'smoke-secret-must-not-persist'* || "$result" == *'smoke.user@example.test'* ]]; then
   echo 'secret or PII appeared in query output' >&2
+  exit 1
+fi
+
+for _ in {1..30}; do
+  sampling=$(curl --silent --show-error "$sampling_url" --header "x-paop-api-key: $api_key" || true)
+  if [[ "$sampling" == *'"traceId":"smoke-trace-001"'* ]]; then break; fi
+  sleep 1
+done
+[[ "$sampling" == *'"traceId":"smoke-trace-001"'* ]]
+[[ "$sampling" == *'"reason":"retained_healthy_sample"'* ]]
+if [[ "$sampling" == *'smoke-secret-must-not-persist'* || "$sampling" == *'smoke.user@example.test'* ]]; then
+  echo 'sampling decision leaked telemetry content' >&2
   exit 1
 fi
 
@@ -71,7 +84,7 @@ echo "derived metrics response: $metrics"
 [[ "$metrics" == *'"logCount":1'* ]]
 [[ "$metrics" == *'"errorCount":0'* ]]
 
-logs=$("${compose[@]}" logs --no-color gateway persist query)
+logs=$("${compose[@]}" logs --no-color gateway tailer persist query)
 if [[ "$logs" == *'smoke-secret-must-not-persist'* || "$logs" == *'smoke.user@example.test'* || "$logs" == *'synthetic.user@example.test'* || "$logs" == *"$api_key"* ]]; then
   echo 'secret or PII appeared in service logs' >&2
   exit 1
@@ -84,4 +97,4 @@ if [[ "$gateway_metrics$query_metrics" == *'smoke-secret-must-not-persist'* || "
   echo 'unsafe metric label content detected' >&2
   exit 1
 fi
-echo 'integration smoke passed: authenticated OTLP ingest, redaction, durable persistence, and tenant-scoped investigation metrics'
+echo 'integration smoke passed: authenticated OTLP ingest, durable tail sampling, redaction, persistence, and tenant-scoped investigation metrics'

@@ -12,6 +12,8 @@ The default policy removes or replaces values before durable publication.
 Every accepted envelope includes a policy version and a list of redacted field
 paths, never removed values. Redactors are composed: a log body containing an
 email and a configured pattern receives both replacements before publication.
-Tests seed bearer tokens, cookies, API keys, emails, and configured-pattern
-values in traces and OTLP logs and assert their absence from emitted envelopes
-and logs.
+The PostgreSQL tail buffer and outbox contain only that sanitized envelope.
+Sampling decisions retain trace ID, reason, count, and timestamp only—never an
+attribute or body. Tests seed bearer tokens, cookies, API keys, emails, and
+configured-pattern values in traces and OTLP logs and assert their absence from
+emitted envelopes, decision records, and logs.

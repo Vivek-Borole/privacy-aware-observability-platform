@@ -10,10 +10,10 @@ bash scripts/integration-smoke.sh
 ```
 
 The smoke command starts PostgreSQL, Redpanda, ClickHouse, migrations, gateway,
-persistence worker, and query API. It creates a local synthetic tenant, sends
-a seeded OTLP/HTTP trace and a trace-linked OTLP log, waits for persistence,
-verifies redaction and tenant-scoped lookup, then rejects any raw seed in
-service logs.
+persistence worker, tail-sampling worker, and query API. It creates a local
+synthetic tenant, sends a seeded OTLP/HTTP trace and a trace-linked OTLP log,
+waits for persistence, verifies redaction, explicit sampling evidence, and
+tenant-scoped lookup, then rejects any raw seed in service logs.
 
 For the investigation console:
 

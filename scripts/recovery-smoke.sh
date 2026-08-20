@@ -10,7 +10,7 @@ gateway_url='http://127.0.0.1:18080/v1/traces'
 query_url='http://127.0.0.1:18081/v1/traces/recovery-trace-001'
 payload='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"recovery-synthetic"}},{"key":"authorization","value":{"stringValue":"Bearer recovery-secret-must-not-persist"}}]},"scopeSpans":[{"spans":[{"traceId":"recovery-trace-001","spanId":"recovery-span-001","name":"recovery.checkout","attributes":[{"key":"customer.email","value":{"stringValue":"recovery.user@example.test"}},{"key":"http.status_code","value":{"intValue":"200"}}]}]}]}]}'
 
-"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate persist gateway query
+"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate tailer persist gateway query
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-recovery' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 
 "${compose[@]}" pause clickhouse
@@ -43,7 +43,7 @@ result=$(curl --silent --show-error "$query_url" --header "x-paop-api-key: $api_
 count=$(grep -o '"eventKey"' <<<"$result" | wc -l | tr -d ' ')
 test "$count" = '1'
 
-logs=$("${compose[@]}" logs --no-color gateway persist query)
+logs=$("${compose[@]}" logs --no-color gateway tailer persist query)
 if [[ "$logs" == *'recovery-secret-must-not-persist'* || "$logs" == *'recovery.user@example.test'* || "$logs" == *"$api_key"* ]]; then
   echo 'recovery test leaked a seeded secret, PII, or key in logs' >&2
   exit 1

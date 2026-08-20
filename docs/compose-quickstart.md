@@ -26,6 +26,11 @@ by the console. The **24-hour overview** uses the same authenticated tenant
 context and returns derived span, trace, and error-marked-span counts only; it
 does not return raw telemetry attributes.
 
+Prometheus is available at `http://localhost:19090` and the provisioned local
+Grafana dashboard at `http://localhost:13000`. They expose bounded gateway and
+query HTTP outcomes only: no tenant IDs, trace IDs, attributes, keys, or
+telemetry content become metric labels.
+
 ## Synthetic distributed demo
 
 With the Compose stack running, send one fabricated checkout request:

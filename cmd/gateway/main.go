@@ -11,6 +11,7 @@ import (
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/broker"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/ingest"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/metadata"
+	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/observe"
 )
 
 func main() {
@@ -26,7 +27,11 @@ func main() {
 
 	patterns := compilePatterns(os.Getenv("PAOP_REDACTION_PATTERNS"))
 	gateway := ingest.Gateway{Authenticator: store, Publisher: publisher, PolicyVersion: valueOr("PAOP_POLICY_VERSION", "v1"), Patterns: patterns}
-	server := &http.Server{Addr: valueOr("PAOP_LISTEN_ADDR", ":8080"), Handler: gateway, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	metrics := observe.NewHTTP("gateway")
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics)
+	mux.Handle("/", metrics.Wrap(gateway))
+	server := &http.Server{Addr: valueOr("PAOP_LISTEN_ADDR", ":8080"), Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("ingestion gateway listening", "address", server.Addr, "policyVersion", gateway.PolicyVersion)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("gateway stopped", "errorClass", "listen_failure")

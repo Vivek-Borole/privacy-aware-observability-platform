@@ -14,7 +14,7 @@ query_url='http://127.0.0.1:18081/v1/traces/smoke-trace-001'
 metrics_url='http://127.0.0.1:18081/v1/metrics'
 payload='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}},{"key":"authorization","value":{"stringValue":"Bearer smoke-secret-must-not-persist"}}]},"scopeSpans":[{"spans":[{"traceId":"smoke-trace-001","spanId":"smoke-span-001","name":"synthetic.checkout","attributes":[{"key":"customer.email","value":{"stringValue":"smoke.user@example.test"}},{"key":"http.status_code","value":{"intValue":"200"}}]}]}]}]}'
 
-"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate persist gateway query synthetic-worker synthetic-downstream synthetic-api
+"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate persist gateway query prometheus grafana synthetic-worker synthetic-downstream synthetic-api
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-smoke' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 
 status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
@@ -69,6 +69,14 @@ echo "derived metrics response: $metrics"
 logs=$("${compose[@]}" logs --no-color gateway persist query)
 if [[ "$logs" == *'smoke-secret-must-not-persist'* || "$logs" == *'smoke.user@example.test'* || "$logs" == *'synthetic.user@example.test'* || "$logs" == *"$api_key"* ]]; then
   echo 'secret or PII appeared in service logs' >&2
+  exit 1
+fi
+gateway_metrics=$(curl --silent --show-error http://127.0.0.1:18080/metrics)
+query_metrics=$(curl --silent --show-error http://127.0.0.1:18081/metrics)
+[[ "$gateway_metrics" == *'paop_http_requests_total'* ]]
+[[ "$query_metrics" == *'paop_http_requests_total'* ]]
+if [[ "$gateway_metrics$query_metrics" == *'smoke-secret-must-not-persist'* || "$gateway_metrics$query_metrics" == *'smoke.user@example.test'* || "$gateway_metrics$query_metrics" == *"$api_key"* ]]; then
+  echo 'unsafe metric label content detected' >&2
   exit 1
 fi
 echo 'integration smoke passed: authenticated OTLP ingest, redaction, durable persistence, and tenant-scoped investigation metrics'

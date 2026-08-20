@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/metadata"
+	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/observe"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/query"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/telemetry"
 )
@@ -19,7 +20,11 @@ func main() {
 	}
 	defer store.Close()
 	clickhouse := telemetry.NewClickHouse(required("PAOP_CLICKHOUSE_URL"))
-	handler := cors(query.API{Authenticator: store, Store: clickhouse, Deleter: clickhouse, Auditor: store, AuditReader: store}, valueOr("PAOP_CONSOLE_ORIGIN", "http://localhost:5173"))
+	metrics := observe.NewHTTP("query")
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics)
+	mux.Handle("/", metrics.Wrap(query.API{Authenticator: store, Store: clickhouse, Deleter: clickhouse, Auditor: store, AuditReader: store}))
+	handler := cors(mux, valueOr("PAOP_CONSOLE_ORIGIN", "http://localhost:5173"))
 	server := &http.Server{Addr: valueOr("PAOP_QUERY_LISTEN_ADDR", ":8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	slog.Info("query API listening", "address", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

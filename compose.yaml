@@ -31,7 +31,7 @@ services:
     depends_on:
       clickhouse: {condition: service_started}
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.124.0
+    image: otel/opentelemetry-collector-contrib:0.157.0
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes: ["./deploy/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro"]
     ports: ["18889:8889"]

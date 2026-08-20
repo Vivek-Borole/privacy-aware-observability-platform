@@ -15,7 +15,9 @@ synthetic tenant, sends a seeded OTLP/HTTP trace and a trace-linked OTLP log,
 waits for persistence, verifies redaction, explicit sampling evidence, and
 tenant-scoped lookup, then rejects any raw seed in PostgreSQL, Redpanda,
 ClickHouse, service logs, and metrics. The Redpanda assertion uses an in-memory
-audit command that reports only a message count, never broker payloads.
+audit command that reports only a message count, never broker payloads. It also
+proves malformed OTLP/HTTP input is rejected before it reaches the durable
+tail buffer.
 
 For the investigation console:
 

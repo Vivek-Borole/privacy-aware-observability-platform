@@ -3,6 +3,8 @@
 The repository remains private until all of these are measured and published:
 
 - redaction, tenant isolation, ingestion, query, retention, restart, and [backpressure](backpressure-test.md) tests;
+- CI type checks, race tests, dependency audit, and a payload-silent
+  high-confidence secret-signature scan;
 - 5,000 synthetic spans/s for 10 minutes on the M3 Pro development machine;
 - p95 sanitized trace lookup at or below three seconds for that dataset;
 - evidence that accepted data survives planned consumer restarts, or loss is explicitly evidenced;

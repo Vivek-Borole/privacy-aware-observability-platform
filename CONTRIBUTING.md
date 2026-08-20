@@ -15,6 +15,7 @@ pnpm console:build
 go vet ./...
 go test -race ./...
 pnpm audit --audit-level=high
+bash scripts/secret-scan.sh
 ```
 
 With Docker available, also run the synthetic-only integration checks:
@@ -37,6 +38,10 @@ bash scripts/backpressure-smoke.sh
   boundary. Automated tests must never contact real services.
 - Keep API changes compatible under `/v1`; use a new version for a breaking
   contract.
+
+`scripts/secret-scan.sh` is a dependency-free high-confidence signature guard,
+not a substitute for reviewing changes or using GitHub secret scanning when the
+repository becomes public.
 
 By contributing, you agree that your contribution may be released under the
 [MIT License](LICENSE) once the project’s public-release gate is met.

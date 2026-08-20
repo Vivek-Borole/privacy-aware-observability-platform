@@ -33,7 +33,12 @@ if [[ "$result" == *'smoke-secret-must-not-persist'* || "$result" == *'smoke.use
   exit 1
 fi
 
-metrics=$(curl --silent --show-error "$metrics_url" --header "x-paop-api-key: $api_key")
+for _ in {1..30}; do
+  metrics=$(curl --silent --show-error "$metrics_url" --header "x-paop-api-key: $api_key" || true)
+  if [[ "$metrics" == *'"spanCount":1'* ]]; then break; fi
+  sleep 1
+done
+echo "derived metrics response: $metrics"
 [[ "$metrics" == *'"windowHours":24'* ]]
 [[ "$metrics" == *'"spanCount":1'* ]]
 [[ "$metrics" == *'"traceCount":1'* ]]

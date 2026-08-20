@@ -8,6 +8,7 @@ else
 fi
 
 api_key='synthetic-integration-key-not-for-production'
+other_api_key='synthetic-other-tenant-key-not-for-production'
 postgres_url='postgres://paop:paop-local-only@127.0.0.1:5433/paop?sslmode=disable'
 gateway_url='http://127.0.0.1:18080/v1/traces'
 query_url='http://127.0.0.1:18081/v1/traces/smoke-trace-001'
@@ -18,6 +19,7 @@ log_payload='{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","
 
 "${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate persist gateway query prometheus grafana synthetic-worker synthetic-downstream synthetic-api
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-smoke' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
+PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-other' PAOP_API_KEY="$other_api_key" go run ./cmd/bootstrap >/dev/null
 
 status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
 test "$status" = '202'
@@ -37,6 +39,11 @@ if [[ "$result" == *'smoke-secret-must-not-persist'* || "$result" == *'smoke.use
   echo 'secret or PII appeared in query output' >&2
   exit 1
 fi
+other_result=$(curl --silent --show-error "$query_url" --header "x-paop-api-key: $other_api_key")
+if [[ "$other_result" == *'synthetic.checkout'* || "$other_result" == *'smoke-secret-must-not-persist'* || "$other_result" == *'smoke.user@example.test'* ]]; then
+  echo 'cross-tenant trace data was visible' >&2
+  exit 1
+fi
 
 for _ in {1..30}; do
   sampling=$(curl --silent --show-error "$sampling_url" --header "x-paop-api-key: $api_key" || true)
@@ -47,6 +54,11 @@ done
 [[ "$sampling" == *'"reason":"retained_healthy_sample"'* ]]
 if [[ "$sampling" == *'smoke-secret-must-not-persist'* || "$sampling" == *'smoke.user@example.test'* ]]; then
   echo 'sampling decision leaked telemetry content' >&2
+  exit 1
+fi
+other_sampling=$(curl --silent --show-error "$sampling_url" --header "x-paop-api-key: $other_api_key")
+if [[ "$other_sampling" == *'smoke-trace-001'* ]]; then
+  echo 'cross-tenant sampling evidence was visible' >&2
   exit 1
 fi
 
@@ -87,6 +99,16 @@ echo "derived metrics response: $metrics"
 logs=$("${compose[@]}" logs --no-color gateway tailer persist query)
 if [[ "$logs" == *'smoke-secret-must-not-persist'* || "$logs" == *'smoke.user@example.test'* || "$logs" == *'synthetic.user@example.test'* || "$logs" == *"$api_key"* ]]; then
   echo 'secret or PII appeared in service logs' >&2
+  exit 1
+fi
+database_dump=$("${compose[@]}" exec -T postgres pg_dump -U paop paop)
+if [[ "$database_dump" == *'smoke-secret-must-not-persist'* || "$database_dump" == *'smoke.user@example.test'* || "$database_dump" == *'synthetic.user@example.test'* || "$database_dump" == *"$api_key"* || "$database_dump" == *"$other_api_key"* ]]; then
+  echo 'secret, PII, or raw API key appeared in PostgreSQL dump' >&2
+  exit 1
+fi
+clickhouse_dump=$(curl --silent --show-error --user 'paop:paop-local-only' --data-binary 'select attributes_json from telemetry.spans format JSONEachRow' http://127.0.0.1:18123/)
+if [[ "$clickhouse_dump" == *'smoke-secret-must-not-persist'* || "$clickhouse_dump" == *'smoke.user@example.test'* || "$clickhouse_dump" == *'synthetic.user@example.test'* ]]; then
+  echo 'secret or PII appeared in ClickHouse' >&2
   exit 1
 fi
 gateway_metrics=$(curl --silent --show-error http://127.0.0.1:18080/metrics)

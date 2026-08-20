@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -33,6 +35,18 @@ type row struct {
 	PolicyVersion  string   `json:"policy_version"`
 	RedactedPaths  []string `json:"redacted_paths"`
 	IngestedAt     string   `json:"ingested_at"`
+}
+
+type Span struct {
+	EventKey      string            `json:"eventKey"`
+	EventID       string            `json:"eventId"`
+	TraceID       string            `json:"traceId"`
+	SpanID        string            `json:"spanId"`
+	Name          string            `json:"name"`
+	Attributes    map[string]string `json:"attributes"`
+	PolicyVersion string            `json:"policyVersion"`
+	RedactedPaths []string          `json:"redactedPaths"`
+	IngestedAt    string            `json:"ingestedAt"`
 }
 
 func (c *ClickHouse) Persist(ctx context.Context, envelope ingest.Envelope) error {
@@ -74,4 +88,46 @@ func (c *ClickHouse) Execute(ctx context.Context, statement string) error {
 		return fmt.Errorf("clickhouse status class %d", response.StatusCode/100)
 	}
 	return nil
+}
+
+// QueryTrace binds tenant and trace as ClickHouse parameters. Tenant scope is
+// never a client-controlled SQL predicate.
+func (c *ClickHouse) QueryTrace(ctx context.Context, tenantID, traceID string) ([]Span, error) {
+	endpoint, err := url.Parse(c.endpoint + "/")
+	if err != nil {
+		return nil, err
+	}
+	values := endpoint.Query()
+	values.Set("query", "SELECT event_key,event_id,trace_id,span_id,name,attributes_json,policy_version,redacted_paths,toString(ingested_at) AS ingested_at FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND trace_id = {trace:String} ORDER BY ingested_at ASC FORMAT JSONEachRow")
+	values.Set("param_tenant", tenantID)
+	values.Set("param_trace", traceID)
+	endpoint.RawQuery = values.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("clickhouse status class %d", response.StatusCode/100)
+	}
+	decoder := json.NewDecoder(response.Body)
+	var spans []Span
+	for {
+		var stored row
+		if err := decoder.Decode(&stored); err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+		attributes := map[string]string{}
+		if err := json.Unmarshal([]byte(stored.AttributesJSON), &attributes); err != nil {
+			return nil, err
+		}
+		spans = append(spans, Span{EventKey: stored.EventKey, EventID: stored.EventID, TraceID: stored.TraceID, SpanID: stored.SpanID, Name: stored.Name, Attributes: attributes, PolicyVersion: stored.PolicyVersion, RedactedPaths: stored.RedactedPaths, IngestedAt: stored.IngestedAt})
+	}
+	return spans, nil
 }

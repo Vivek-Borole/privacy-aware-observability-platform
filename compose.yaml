@@ -78,3 +78,14 @@ services:
       redpanda: {condition: service_started}
       topic-init: {condition: service_completed_successfully}
       clickhouse-migrate: {condition: service_completed_successfully}
+  query:
+    build:
+      context: .
+      target: query
+    environment:
+      PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
+      PAOP_CLICKHOUSE_URL: http://paop:paop-local-only@clickhouse:8123
+    ports: ["18081:8081"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      clickhouse-migrate: {condition: service_completed_successfully}

@@ -23,3 +23,11 @@ A local-first, multi-tenant telemetry pipeline and incident-investigation consol
 4. Failure injection, 5,000 spans/s benchmark, evidence package, and public tagged release.
 
 Read [the architecture](docs/architecture.md), [privacy model](docs/privacy-model.md), and [release gates](docs/release-gates.md) before extending the platform.
+
+## Local foundation check
+
+```bash
+go test -race ./...
+# Docker Desktop commonly provides `docker compose`; this Mac's Colima setup uses `docker-compose`.
+docker compose config || docker-compose config
+```

@@ -22,6 +22,14 @@ services:
       CLICKHOUSE_USER: paop
       CLICKHOUSE_PASSWORD: paop-local-only
     ports: ["18123:8123", "19000:9000"]
+  clickhouse-migrate:
+    build:
+      context: .
+      target: clickhouse-migrate
+    environment:
+      PAOP_CLICKHOUSE_URL: http://paop:paop-local-only@clickhouse:8123
+    depends_on:
+      clickhouse: {condition: service_started}
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.124.0
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
@@ -57,3 +65,16 @@ services:
       PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
     depends_on:
       postgres: {condition: service_healthy}
+  persist:
+    build:
+      context: .
+      target: persist
+    environment:
+      PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
+      PAOP_KAFKA_BROKERS: redpanda:9092
+      PAOP_CLICKHOUSE_URL: http://paop:paop-local-only@clickhouse:8123
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_started}
+      topic-init: {condition: service_completed_successfully}
+      clickhouse-migrate: {condition: service_completed_successfully}

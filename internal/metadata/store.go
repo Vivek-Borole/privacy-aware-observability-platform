@@ -58,3 +58,41 @@ func (s *Store) CreateTenantKey(ctx context.Context, tenantID, keyHash string) e
 	}
 	return tx.Commit()
 }
+
+// ClaimDelivery is the PostgreSQL authority for event identity. A persisted
+// event is never sent to ClickHouse again; a pending event may be retried after
+// a crashed consumer, where ClickHouse's ReplacingMergeTree protects queries
+// from the resulting duplicate row until compaction.
+func (s *Store) ClaimDelivery(ctx context.Context, eventKey, tenantID string) (bool, error) {
+	var status string
+	err := s.db.QueryRowContext(ctx, `
+    insert into delivery_ledger(event_key, tenant_id, status)
+    values ($1, $2, 'pending')
+    on conflict (event_key) do update
+      set attempts = delivery_ledger.attempts + 1, updated_at = now()
+      where delivery_ledger.status = 'pending'
+    returning status`, eventKey, tenantID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return status == "pending", nil
+}
+
+func (s *Store) MarkPersisted(ctx context.Context, eventKey string) error {
+	result, err := s.db.ExecContext(ctx, `update delivery_ledger set status = 'persisted', last_error_class = null, updated_at = now() where event_key = $1 and status = 'pending'`, eventKey)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return errors.New("delivery ledger not pending")
+	}
+	return nil
+}
+
+func (s *Store) RecordLoss(ctx context.Context, eventKey, errorClass string) error {
+	_, err := s.db.ExecContext(ctx, `update delivery_ledger set status = 'loss_evidenced', last_error_class = $2, updated_at = now() where event_key = $1 and status = 'pending'`, eventKey, errorClass)
+	return err
+}

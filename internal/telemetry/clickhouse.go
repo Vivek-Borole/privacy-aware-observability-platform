@@ -58,6 +58,14 @@ type UsageMetrics struct {
 	TraceCount  int64 `json:"traceCount"`
 }
 
+// Dependency is a derived, tenant-scoped service edge. It intentionally omits
+// trace IDs, span names, and attributes so topology views do not reveal data.
+type Dependency struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Count  int64  `json:"count"`
+}
+
 func (c *ClickHouse) Persist(ctx context.Context, envelope ingest.Envelope) error {
 	attributes, err := json.Marshal(envelope.Event.Attributes)
 	if err != nil {
@@ -177,6 +185,45 @@ func (c *ClickHouse) QueryUsage(ctx context.Context, tenantID string) (UsageMetr
 		return UsageMetrics{}, err
 	}
 	return UsageMetrics{WindowHours: 24, SpanCount: result.SpanCount, TraceCount: result.TraceCount, ErrorCount: result.ErrorCount}, nil
+}
+
+func (c *ClickHouse) QueryDependencies(ctx context.Context, tenantID string) ([]Dependency, error) {
+	endpoint, err := url.Parse(c.endpoint + "/")
+	if err != nil {
+		return nil, err
+	}
+	values := endpoint.Query()
+	values.Set("query", "SELECT JSONExtractString(attributes_json, 'service.name') AS source,JSONExtractString(attributes_json, 'peer.service') AS target,count() AS edge_count FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND ingested_at >= now() - INTERVAL 24 HOUR AND source != '' AND target != '' GROUP BY source,target ORDER BY edge_count DESC SETTINGS output_format_json_quote_64bit_integers = 0 FORMAT JSONEachRow")
+	values.Set("param_tenant", tenantID)
+	endpoint.RawQuery = values.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("clickhouse status class %d", response.StatusCode/100)
+	}
+	decoder := json.NewDecoder(response.Body)
+	var dependencies []Dependency
+	for {
+		var item struct {
+			Source string `json:"source"`
+			Target string `json:"target"`
+			Count  int64  `json:"edge_count"`
+		}
+		if err := decoder.Decode(&item); err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+		dependencies = append(dependencies, Dependency{Source: item.Source, Target: item.Target, Count: item.Count})
+	}
+	return dependencies, nil
 }
 
 // DeleteOlderThan uses ClickHouse named parameters, keeping the tenant policy

@@ -15,6 +15,7 @@ import (
 type TraceStore interface {
 	QueryTrace(context.Context, string, string) ([]telemetry.Span, error)
 	QueryUsage(context.Context, string) (telemetry.UsageMetrics, error)
+	QueryDependencies(context.Context, string) ([]telemetry.Dependency, error)
 }
 type API struct {
 	Authenticator ingest.Authenticator
@@ -49,6 +50,15 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(metrics)
+		return
+	}
+	if r.URL.Path == "/v1/dependencies" {
+		dependencies, err := a.Store.QueryDependencies(r.Context(), tenant)
+		if err != nil {
+			http.Error(w, "query unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"windowHours": 24, "dependencies": dependencies})
 		return
 	}
 	if !strings.HasPrefix(r.URL.Path, "/v1/traces/") {

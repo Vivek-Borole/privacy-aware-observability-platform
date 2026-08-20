@@ -49,6 +49,10 @@ if [[ "$demo_result" == *'synthetic.user@example.test'* ]]; then
   echo 'synthetic demo PII appeared in query output' >&2
   exit 1
 fi
+dependencies=$(curl --silent --show-error 'http://127.0.0.1:18081/v1/dependencies' --header 'x-paop-api-key: synthetic-compose-key-not-for-production')
+[[ "$dependencies" == *'synthetic-typescript-gateway'* ]]
+[[ "$dependencies" == *'synthetic-go-downstream'* ]]
+[[ "$dependencies" == *'synthetic-async-worker'* ]]
 
 for _ in {1..30}; do
   metrics=$(curl --silent --show-error "$metrics_url" --header "x-paop-api-key: $api_key" || true)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/telemetry"
@@ -22,7 +23,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	for {
-		if err := store.Execute(ctx, string(contents)); err == nil {
+		if err := apply(store, ctx, string(contents)); err == nil {
 			log.Print("applied ClickHouse telemetry schema")
 			return
 		}
@@ -31,4 +32,23 @@ func main() {
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+func apply(store *telemetry.ClickHouse, ctx context.Context, statements string) error {
+	for _, statement := range splitStatements(statements) {
+		if err := store.Execute(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func splitStatements(statements string) []string {
+	var result []string
+	for _, statement := range strings.Split(statements, ";") {
+		if statement = strings.TrimSpace(statement); statement != "" {
+			result = append(result, statement)
+		}
+	}
+	return result
 }

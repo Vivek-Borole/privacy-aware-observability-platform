@@ -22,11 +22,21 @@ test "$status" = '202'
 staged=$("${compose[@]}" exec -T postgres psql -U paop -d paop -At -c "select count(*) from tail_buffers where tenant_id = 'synthetic-recovery' and trace_id = 'recovery-trace-001'")
 test "$staged" = '1'
 
-# Recover the tailer while storage is unavailable. It can safely release the
-# durable outbox event; the persistence consumer will later redeliver it.
+# Recover the tailer while both the broker and storage are unavailable. The
+# event must remain in PostgreSQL's durable outbox while Redpanda is stopped;
+# after the broker returns, the persistence consumer can redeliver it once the
+# storage outage is removed.
 "${compose[@]}" pause clickhouse
+"${compose[@]}" stop redpanda
 "${compose[@]}" start tailer
-sleep 6
+sleep 3
+"${compose[@]}" start redpanda
+for _ in {1..30}; do
+  if "${compose[@]}" exec -T redpanda rpk cluster info -X brokers=redpanda:9092 >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+"${compose[@]}" exec -T redpanda rpk cluster info -X brokers=redpanda:9092 >/dev/null
+sleep 3
 "${compose[@]}" unpause clickhouse
 "${compose[@]}" restart persist
 
@@ -56,4 +66,4 @@ if [[ "$logs" == *'recovery-secret-must-not-persist'* || "$logs" == *'recovery.u
   echo 'recovery test leaked a seeded secret, PII, or key in logs' >&2
   exit 1
 fi
-echo 'recovery smoke passed: staged event survived tailer restart, delayed storage, and duplicate delivery without a duplicate query effect'
+echo 'recovery smoke passed: staged event survived tailer and broker recovery, delayed storage, and duplicate delivery without a duplicate query effect'

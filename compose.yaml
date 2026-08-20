@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: paop
+      POSTGRES_USER: paop
+      POSTGRES_PASSWORD: paop-local-only
+    ports: ["5433:5432"]
+  redpanda:
+    image: redpandadata/redpanda:v25.1.4
+    command: ["redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "1G", "--reserve-memory", "0M", "--node-id", "0", "--check=false"]
+    ports: ["19092:9092", "19644:9644"]
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3-alpine
+    environment:
+      CLICKHOUSE_DB: telemetry
+      CLICKHOUSE_USER: paop
+      CLICKHOUSE_PASSWORD: paop-local-only
+    ports: ["18123:8123", "19000:9000"]
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.124.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes: ["./deploy/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro"]
+    ports: ["4317:4317", "4318:4318"]

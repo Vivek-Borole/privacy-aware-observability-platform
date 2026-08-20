@@ -1,0 +1,10 @@
+# Release gates
+
+The repository remains private until all of these are measured and published:
+
+- redaction, tenant isolation, ingestion, query, retention, restart, and backpressure tests;
+- 5,000 synthetic spans/s for 10 minutes on the M3 Pro development machine;
+- p95 sanitized trace lookup at or below three seconds for that dataset;
+- evidence that accepted data survives planned consumer restarts, or loss is explicitly evidenced;
+- proof seeded secrets and PII are absent from Redpanda, ClickHouse, logs, exported traces, screenshots, and release artifacts;
+- Compose quick start, threat/privacy model, benchmark and failure reports, synthetic screenshots, and a recorded local demo.

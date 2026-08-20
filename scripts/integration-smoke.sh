@@ -21,12 +21,20 @@ log_payload='{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-smoke' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-other' PAOP_API_KEY="$other_api_key" go run ./cmd/bootstrap >/dev/null
 
-malformed_status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data '{"resourceSpans":[]}')
-test "$malformed_status" = '400'
-status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
-test "$status" = '202'
-status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST 'http://127.0.0.1:18080/v1/logs' --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$log_payload")
-test "$status" = '202'
+post_expected() {
+  local url="$1" expected="$2" data="$3" status='000'
+  for _ in {1..10}; do
+    status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST "$url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$data" || true)
+    if [[ "$status" == "$expected" ]]; then return 0; fi
+    sleep 1
+  done
+  echo "POST did not reach expected safe status: expected=$expected observed=$status" >&2
+  return 1
+}
+
+post_expected "$gateway_url" '400' '{"resourceSpans":[]}'
+post_expected "$gateway_url" '202' "$payload"
+post_expected 'http://127.0.0.1:18080/v1/logs' '202' "$log_payload"
 
 for _ in {1..30}; do
   result=$(curl --silent --show-error "$query_url" --header "x-paop-api-key: $api_key" || true)

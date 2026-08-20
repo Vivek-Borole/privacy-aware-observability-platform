@@ -30,9 +30,14 @@ context and returns derived span, trace, log, and error-marked-span counts;
 it does not return raw telemetry attributes.
 
 Prometheus is available at `http://localhost:19090` and the provisioned local
-Grafana dashboard at `http://localhost:13000`. They expose bounded gateway and
-query HTTP outcomes only: no tenant IDs, trace IDs, attributes, keys, or
-telemetry content become metric labels.
+Grafana dashboard at `http://localhost:13000`. The OpenTelemetry Collector
+scrapes and exports bounded gateway/query HTTP outcomes to Prometheus; no
+tenant IDs, trace IDs, attributes, keys, or telemetry content become metric
+labels. The collector is deliberately not a raw tenant-telemetry ingest path.
+
+The synthetic smoke test verifies that the collector exposes the internal
+`paop_http_requests_total` metric and rejects unsafe content in those metric
+labels.
 
 ## Synthetic distributed demo
 

@@ -129,8 +129,18 @@ gateway_metrics=$(curl --silent --show-error http://127.0.0.1:18080/metrics)
 query_metrics=$(curl --silent --show-error http://127.0.0.1:18081/metrics)
 [[ "$gateway_metrics" == *'paop_http_requests_total'* ]]
 [[ "$query_metrics" == *'paop_http_requests_total'* ]]
+for _ in {1..30}; do
+  collector_metrics=$(curl --silent --show-error http://127.0.0.1:18889/metrics || true)
+  if [[ "$collector_metrics" == *'paop_http_requests_total'* ]]; then break; fi
+  sleep 1
+done
+[[ "$collector_metrics" == *'paop_http_requests_total'* ]]
 if [[ "$gateway_metrics$query_metrics" == *'smoke-secret-must-not-persist'* || "$gateway_metrics$query_metrics" == *'smoke.user@example.test'* || "$gateway_metrics$query_metrics" == *"$api_key"* ]]; then
   echo 'unsafe metric label content detected' >&2
+  exit 1
+fi
+if [[ "$collector_metrics" == *'smoke-secret-must-not-persist'* || "$collector_metrics" == *'smoke.user@example.test'* || "$collector_metrics" == *"$api_key"* ]]; then
+  echo 'unsafe collector metric label content detected' >&2
   exit 1
 fi
 echo 'integration smoke passed: authenticated OTLP ingest, durable tail sampling, redaction, persistence, and tenant-scoped investigation metrics'

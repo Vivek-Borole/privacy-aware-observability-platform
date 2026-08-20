@@ -14,6 +14,9 @@ flowchart LR
   H --> Q["tenant-scoped query API"]
   P --> Q
   Q --> U["React investigation console"]
+  G -. "bounded internal health metrics" .-> O["OpenTelemetry Collector"]
+  Q -. "bounded internal health metrics" .-> O
+  O --> M["Prometheus + Grafana"]
 ```
 
 The gateway accepts bounded OTLP/HTTP JSON traces and logs. It acknowledges an
@@ -28,6 +31,11 @@ lookup. A downstream failure therefore yields retry or an explicit loss receipt
 rather than silent success.
 
 Raw telemetry is untrusted input and never reaches broker, storage, or logs before validation and redaction. PostgreSQL metadata and ClickHouse queries always include tenant scope.
+
+The OpenTelemetry Collector is intentionally limited to internal HTTP outcome
+metrics: it scrapes the gateway and query API and makes those bounded values
+available to Prometheus/Grafana. It is not a tenant-telemetry ingest path; raw
+telemetry enters only the authenticated redaction-first gateway.
 
 ## Durable tail decision state
 

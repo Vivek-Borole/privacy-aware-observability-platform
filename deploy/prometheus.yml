@@ -1,7 +1,5 @@
 global:
   scrape_interval: 5s
 scrape_configs:
-  - job_name: paop-gateway
-    static_configs: [{targets: ["gateway:8080"]}]
-  - job_name: paop-query
-    static_configs: [{targets: ["query:8081"]}]
+  - job_name: paop-otel-collector
+    static_configs: [{targets: ["otel-collector:8889"]}]

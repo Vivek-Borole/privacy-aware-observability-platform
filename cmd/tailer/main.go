@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/metadata"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/sampling"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/tail"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func main() {
@@ -40,9 +42,17 @@ func main() {
 	defer stop()
 	slog.Info("durable tail sampler started", "healthySampleModulo", modulo)
 	if err := runner.Run(ctx); err != nil && ctx.Err() == nil {
-		slog.Error("tail sampler stopped", "errorClass", "tail_failure")
+		slog.Error("tail sampler stopped", "errorClass", errorClass(err))
 		os.Exit(1)
 	}
+}
+
+func errorClass(err error) string {
+	var databaseError *pgconn.PgError
+	if errors.As(err, &databaseError) {
+		return "postgres_" + databaseError.Code
+	}
+	return "tail_failure"
 }
 
 func required(name string) string {

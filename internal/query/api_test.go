@@ -17,10 +17,15 @@ type deletionStub struct {
 	deleted, audited bool
 }
 type auditReaderStub struct{ tenant string }
+type samplingReaderStub struct{ tenant string }
 
 func (s *auditReaderStub) AuditEvents(_ context.Context, tenant string, _ int) ([]metadata.AuditEvent, error) {
 	s.tenant = tenant
 	return []metadata.AuditEvent{{Action: "safe_action"}}, nil
+}
+func (s *samplingReaderStub) TailDecisions(_ context.Context, tenant string, _ int) ([]metadata.TailDecision, error) {
+	s.tenant = tenant
+	return []metadata.TailDecision{{TraceID: "safe-trace", Reason: "retained_error", Retained: true, SpanCount: 2}}, nil
 }
 
 func (s *deletionStub) DeleteTenantTelemetry(_ context.Context, tenant string) error {
@@ -111,5 +116,17 @@ func TestAuditUsesAuthenticatedTenantNotClientInput(t *testing.T) {
 	api.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || audit.tenant != "tenant-a" {
 		t.Fatalf("status=%d tenant=%q", response.Code, audit.tenant)
+	}
+}
+
+func TestSamplingUsesAuthenticatedTenantNotClientInput(t *testing.T) {
+	store, sampling := &storeStub{}, &samplingReaderStub{}
+	api := API{Authenticator: ingest.NewAPIKeyAuthenticator(map[string]string{"tenant-a": "key-a"}), Store: store, Sampling: sampling}
+	request := httptest.NewRequest(http.MethodGet, "/v1/sampling?tenantId=tenant-b", nil)
+	request.Header.Set("X-PAOP-API-Key", "key-a")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || sampling.tenant != "tenant-a" {
+		t.Fatalf("status=%d tenant=%q", response.Code, sampling.tenant)
 	}
 }

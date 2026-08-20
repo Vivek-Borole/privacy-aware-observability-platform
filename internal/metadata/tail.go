@@ -154,15 +154,15 @@ func (s *Store) ClaimTailTraces(ctx context.Context, owner string, quiet, ttl ti
 	rows, err := s.db.QueryContext(ctx, `
 with selected as (
   select tenant_id, trace_id from tail_traces
-  where decided_at is null and last_seen <= now() - $1::interval
+  where decided_at is null and last_seen <= now() - ($1 * interval '1 microsecond')
     and (lease_expires_at is null or lease_expires_at < now())
   order by last_seen asc
   for update skip locked
   limit $2
 )
-update tail_traces traces set lease_owner = $3, lease_expires_at = now() + $4::interval
+update tail_traces traces set lease_owner = $3, lease_expires_at = now() + ($4 * interval '1 microsecond')
 from selected where traces.tenant_id = selected.tenant_id and traces.trace_id = selected.trace_id
-returning traces.tenant_id, traces.trace_id, traces.generation`, interval(quiet), limit, owner, interval(ttl))
+returning traces.tenant_id, traces.trace_id, traces.generation`, quiet.Microseconds(), limit, owner, ttl.Microseconds())
 	if err != nil {
 		return nil, err
 	}
@@ -266,9 +266,9 @@ with selected as (
   for update skip locked
   limit $1
 )
-update tail_outbox outbox set lease_owner = $2, lease_expires_at = now() + $3::interval, attempts = attempts + 1
+update tail_outbox outbox set lease_owner = $2, lease_expires_at = now() + ($3 * interval '1 microsecond'), attempts = attempts + 1
 from selected where outbox.event_key = selected.event_key
-returning outbox.event_key, outbox.envelope`, limit, owner, interval(ttl))
+returning outbox.event_key, outbox.envelope`, limit, owner, ttl.Microseconds())
 	if err != nil {
 		return nil, err
 	}
@@ -318,5 +318,3 @@ func (s *Store) TailDecisions(ctx context.Context, tenantID string, limit int) (
 	}
 	return decisions, rows.Err()
 }
-
-func interval(value time.Duration) string { return value.String() }

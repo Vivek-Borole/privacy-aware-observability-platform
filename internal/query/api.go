@@ -27,12 +27,16 @@ type AuditSink interface {
 type AuditReader interface {
 	AuditEvents(context.Context, string, int) ([]metadata.AuditEvent, error)
 }
+type SamplingReader interface {
+	TailDecisions(context.Context, string, int) ([]metadata.TailDecision, error)
+}
 type API struct {
 	Authenticator ingest.Authenticator
 	Store         TraceStore
 	Deleter       TenantDeleter
 	Auditor       AuditSink
 	AuditReader   AuditReader
+	Sampling      SamplingReader
 }
 
 var traceID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -110,6 +114,19 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"events": events})
+		return
+	}
+	if r.URL.Path == "/v1/sampling" {
+		if a.Sampling == nil {
+			http.Error(w, "sampling unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		decisions, err := a.Sampling.TailDecisions(r.Context(), tenant, 100)
+		if err != nil {
+			http.Error(w, "sampling unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"decisions": decisions})
 		return
 	}
 	if !strings.HasPrefix(r.URL.Path, "/v1/traces/") {

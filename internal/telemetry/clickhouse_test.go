@@ -47,3 +47,18 @@ func TestQueryDependenciesBindsTenantAndReturnsDerivedEdges(t *testing.T) {
 		t.Fatalf("unexpected dependencies: %#v", dependencies)
 	}
 }
+
+func TestDeleteTenantTelemetryBindsTenant(t *testing.T) {
+	var tenant, statement string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tenant, statement = r.URL.Query().Get("param_tenant"), r.URL.Query().Get("query")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	if err := NewClickHouse(server.URL).DeleteTenantTelemetry(context.Background(), "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	if tenant != "tenant-a" || !strings.Contains(statement, "DELETE WHERE tenant_id = {tenant:String}") {
+		t.Fatalf("unsafe deletion tenant=%q statement=%q", tenant, statement)
+	}
+}

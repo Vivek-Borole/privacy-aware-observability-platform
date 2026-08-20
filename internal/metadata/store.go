@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -116,4 +117,14 @@ func (s *Store) RetentionPolicies(ctx context.Context) ([]RetentionPolicy, error
 		policies = append(policies, policy)
 	}
 	return policies, rows.Err()
+}
+
+// RecordAudit stores only structured, non-content operational evidence.
+func (s *Store) RecordAudit(ctx context.Context, tenantID, action string, safeMetadata map[string]string) error {
+	payload, err := json.Marshal(safeMetadata)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `insert into audit_events(tenant_id, action, safe_metadata) values ($1, $2, $3::jsonb)`, tenantID, action, string(payload))
+	return err
 }

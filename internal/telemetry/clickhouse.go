@@ -254,3 +254,30 @@ func (c *ClickHouse) DeleteOlderThan(ctx context.Context, tenantID string, cutof
 	}
 	return nil
 }
+
+// DeleteTenantTelemetry schedules deletion of a tenant's sanitized spans. As
+// with all ClickHouse mutations, callers must describe the result as requested
+// until ClickHouse reports physical completion.
+func (c *ClickHouse) DeleteTenantTelemetry(ctx context.Context, tenantID string) error {
+	endpoint, err := url.Parse(c.endpoint + "/")
+	if err != nil {
+		return err
+	}
+	values := endpoint.Query()
+	values.Set("query", "ALTER TABLE telemetry.spans DELETE WHERE tenant_id = {tenant:String}")
+	values.Set("param_tenant", tenantID)
+	endpoint.RawQuery = values.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)
+	if err != nil {
+		return err
+	}
+	response, err := c.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		return fmt.Errorf("clickhouse status class %d", response.StatusCode/100)
+	}
+	return nil
+}

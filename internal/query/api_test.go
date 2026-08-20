@@ -11,6 +11,20 @@ import (
 )
 
 type storeStub struct{ tenant, trace string }
+type deletionStub struct {
+	tenant, action   string
+	deleted, audited bool
+}
+
+func (s *deletionStub) DeleteTenantTelemetry(_ context.Context, tenant string) error {
+	s.tenant = tenant
+	s.deleted = true
+	return nil
+}
+func (s *deletionStub) RecordAudit(_ context.Context, tenant, action string, _ map[string]string) error {
+	s.tenant, s.action, s.audited = tenant, action, true
+	return nil
+}
 
 func (s *storeStub) QueryTrace(_ context.Context, tenant, trace string) ([]telemetry.Span, error) {
 	s.tenant, s.trace = tenant, trace
@@ -58,5 +72,25 @@ func TestDependenciesUseAuthenticatedTenantNotClientInput(t *testing.T) {
 	api.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || store.tenant != "tenant-a" {
 		t.Fatalf("status=%d tenant=%q", response.Code, store.tenant)
+	}
+}
+
+func TestDeletionRequiresConfirmationAndUsesAuthenticatedTenant(t *testing.T) {
+	store, deletion := &storeStub{}, &deletionStub{}
+	api := API{Authenticator: ingest.NewAPIKeyAuthenticator(map[string]string{"tenant-a": "key-a"}), Store: store, Deleter: deletion, Auditor: deletion}
+	request := httptest.NewRequest(http.MethodPost, "/v1/retention/delete?tenantId=tenant-b", nil)
+	request.Header.Set("X-PAOP-API-Key", "key-a")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || deletion.deleted {
+		t.Fatalf("unexpected unconfirmed deletion status=%d deleted=%t", response.Code, deletion.deleted)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/v1/retention/delete?tenantId=tenant-b", nil)
+	request.Header.Set("X-PAOP-API-Key", "key-a")
+	request.Header.Set("X-PAOP-Delete-Confirm", "DELETE_SANITIZED_TELEMETRY")
+	response = httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || deletion.tenant != "tenant-a" || !deletion.deleted || !deletion.audited || deletion.action != "tenant_telemetry_deletion_requested" {
+		t.Fatalf("unsafe deletion: status=%d %#v", response.Code, deletion)
 	}
 }

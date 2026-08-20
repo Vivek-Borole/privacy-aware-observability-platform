@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/metadata"
@@ -19,7 +18,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
-	handler := cors(query.API{Authenticator: store, Store: telemetry.NewClickHouse(required("PAOP_CLICKHOUSE_URL"))}, valueOr("PAOP_CONSOLE_ORIGIN", "http://localhost:5173"))
+	clickhouse := telemetry.NewClickHouse(required("PAOP_CLICKHOUSE_URL"))
+	handler := cors(query.API{Authenticator: store, Store: clickhouse, Deleter: clickhouse, Auditor: store}, valueOr("PAOP_CONSOLE_ORIGIN", "http://localhost:5173"))
 	server := &http.Server{Addr: valueOr("PAOP_QUERY_LISTEN_ADDR", ":8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	slog.Info("query API listening", "address", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -47,11 +47,11 @@ func cors(next http.Handler, allowedOrigin string) http.Handler {
 		if r.Header.Get("Origin") == allowedOrigin {
 			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "X-PAOP-API-Key, Content-Type")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "X-PAOP-API-Key, Content-Type, X-PAOP-Delete-Confirm")
 		}
 		if r.Method == http.MethodOptions {
-			if r.Header.Get("Origin") != allowedOrigin || !strings.Contains(r.Header.Get("Access-Control-Request-Method"), http.MethodGet) {
+			if r.Header.Get("Origin") != allowedOrigin || (r.Header.Get("Access-Control-Request-Method") != http.MethodGet && r.Header.Get("Access-Control-Request-Method") != http.MethodPost) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}

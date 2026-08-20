@@ -114,7 +114,12 @@ fi
 deletion=$(curl --silent --show-error --request POST 'http://127.0.0.1:18081/v1/retention/delete' --header "x-paop-api-key: $api_key" --header 'x-paop-delete-confirm: DELETE_SANITIZED_TELEMETRY')
 [[ "$deletion" == *'"state":"mutation_requested"'* ]]
 database_after_deletion=$("${compose[@]}" exec -T postgres pg_dump -U paop paop)
-if [[ "$database_after_deletion" == *'smoke-trace-001'* ]]; then
+if [[ "$database_after_deletion" == *'smoke-secret-must-not-persist'* || "$database_after_deletion" == *'smoke.user@example.test'* ]]; then
+  echo 'secret or PII appeared in PostgreSQL after an explicit deletion request' >&2
+  exit 1
+fi
+tail_rows=$("${compose[@]}" exec -T postgres psql -U paop -d paop -At -c "select (select count(*) from tail_traces where tenant_id = 'synthetic-smoke') + (select count(*) from tail_buffers where tenant_id = 'synthetic-smoke') + (select count(*) from tail_decisions where tenant_id = 'synthetic-smoke') + (select count(*) from tail_outbox where tenant_id = 'synthetic-smoke') + (select count(*) from tail_event_keys where tenant_id = 'synthetic-smoke')")
+if [[ "$tail_rows" != '0' ]]; then
   echo 'tenant tail metadata survived an explicit deletion request' >&2
   exit 1
 fi

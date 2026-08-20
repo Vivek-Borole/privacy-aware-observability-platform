@@ -6,6 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /gateway ./cmd/gateway
 RUN CGO_ENABLED=0 go build -o /persist ./cmd/persist
 RUN CGO_ENABLED=0 go build -o /query ./cmd/query
+RUN CGO_ENABLED=0 go build -o /synthetic-emitter ./cmd/synthetic-emitter
 
 FROM build AS migrate
 ENTRYPOINT ["go", "run", "./cmd/migrate"]

@@ -8,3 +8,9 @@ The repository remains private until all of these are measured and published:
 - evidence that accepted data survives planned consumer restarts, or loss is explicitly evidenced;
 - proof seeded secrets and PII are absent from Redpanda, ClickHouse, logs, exported traces, screenshots, and release artifacts;
 - Compose quick start, threat/privacy model, benchmark and failure reports, synthetic screenshots, and a recorded local demo.
+
+`cmd/synthetic-emitter` is the only load source used for the benchmark. It
+emits fabricated OTLP/HTTP JSON spans containing HTTP, queue, database, and
+application attributes, deliberately including a synthetic email so the
+redaction boundary is exercised. It never connects to real services or uses
+production credentials.

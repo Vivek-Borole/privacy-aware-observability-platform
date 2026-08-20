@@ -25,13 +25,22 @@ importers:
         version: 19.2.4(@types/react@19.2.18)
       '@vitejs/plugin-react':
         specifier: ^6.0.5
-        version: 6.0.5(vite@8.2.1)
+        version: 6.0.5(vite@8.2.1(@types/node@24.13.3))
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
         specifier: ^8.2.1
-        version: 8.2.1
+        version: 8.2.1(@types/node@24.13.3)
+
+  apps/synthetic-gateway:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.0
+        version: 24.13.3
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
 
 packages:
 
@@ -130,6 +139,9 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@types/node@24.13.3':
+    resolution: {integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==}
 
   '@types/react-dom@19.2.4':
     resolution: {integrity: sha512-Bsc+QHgp+P/F02XDzNCY9jnZNCUuLki36KT7VKrTXXLdHf+vHMNZnW1rVu5DNW/rCK+fya3DATySbLM4yhtKUw==}
@@ -413,6 +425,9 @@ packages:
     engines: {node: '>=16.20.0'}
     hasBin: true
 
+  undici-types@7.18.2:
+    resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
+
   vite@8.2.1:
     resolution: {integrity: sha512-EU/eS7BH3XROHh2YnBefjM6DBKA6ZeMZEYQbj7NLWg5wHYlhB8B/Mayd5XsgWq+NFYccDOTemRpdETWR6Ka/lw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -504,6 +519,10 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
+  '@types/node@24.13.3':
+    dependencies:
+      undici-types: 7.18.2
+
   '@types/react-dom@19.2.4(@types/react@19.2.18)':
     dependencies:
       '@types/react': 19.2.18
@@ -572,10 +591,10 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@vitejs/plugin-react@6.0.5(vite@8.2.1)':
+  '@vitejs/plugin-react@6.0.5(vite@8.2.1(@types/node@24.13.3))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.2.1
+      vite: 8.2.1(@types/node@24.13.3)
 
   csstype@3.2.3: {}
 
@@ -708,7 +727,9 @@ snapshots:
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
 
-  vite@8.2.1:
+  undici-types@7.18.2: {}
+
+  vite@8.2.1(@types/node@24.13.3):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -716,4 +737,5 @@ snapshots:
       rolldown: 1.2.4
       tinyglobby: 0.2.17
     optionalDependencies:
+      '@types/node': 24.13.3
       fsevents: 2.3.3

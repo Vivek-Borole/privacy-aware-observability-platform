@@ -5,6 +5,7 @@
   "scripts": {
     "console:dev": "pnpm --dir apps/console dev",
     "console:build": "pnpm --dir apps/console build",
-    "console:typecheck": "pnpm --dir apps/console typecheck"
+    "console:typecheck": "pnpm --dir apps/console typecheck",
+    "synthetic:typecheck": "pnpm --dir apps/synthetic-gateway typecheck"
   }
 }

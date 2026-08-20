@@ -56,6 +56,7 @@ services:
       postgres: {condition: service_healthy}
       redpanda: {condition: service_started}
       migrate: {condition: service_completed_successfully}
+      synthetic-bootstrap: {condition: service_completed_successfully}
       topic-init: {condition: service_completed_successfully}
   migrate:
     build:
@@ -65,6 +66,16 @@ services:
       PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
     depends_on:
       postgres: {condition: service_healthy}
+  synthetic-bootstrap:
+    build:
+      context: .
+      target: bootstrap
+    environment:
+      PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
+      PAOP_TENANT_ID: synthetic-compose
+      PAOP_API_KEY: synthetic-compose-key-not-for-production
+    depends_on:
+      migrate: {condition: service_completed_successfully}
   persist:
     build:
       context: .
@@ -90,3 +101,36 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       clickhouse-migrate: {condition: service_completed_successfully}
+  synthetic-worker:
+    build:
+      context: .
+      target: synthetic-worker
+    environment:
+      PAOP_INGEST_URL: http://gateway:8080
+      PAOP_SYNTHETIC_API_KEY: synthetic-compose-key-not-for-production
+    depends_on:
+      gateway: {condition: service_started}
+  synthetic-downstream:
+    build:
+      context: .
+      target: synthetic-downstream
+    environment:
+      PAOP_INGEST_URL: http://gateway:8080
+      PAOP_SYNTHETIC_API_KEY: synthetic-compose-key-not-for-production
+      PAOP_SYNTHETIC_WORKER_URL: http://synthetic-worker:8092
+    depends_on:
+      gateway: {condition: service_started}
+      synthetic-worker: {condition: service_started}
+  synthetic-api:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["node", "--experimental-strip-types", "apps/synthetic-gateway/src/main.ts"]
+    volumes: [".:/app:ro"]
+    environment:
+      PAOP_INGEST_URL: http://gateway:8080
+      PAOP_SYNTHETIC_API_KEY: synthetic-compose-key-not-for-production
+      PAOP_SYNTHETIC_DOWNSTREAM_URL: http://synthetic-downstream:8091
+    ports: ["18090:8090"]
+    depends_on:
+      gateway: {condition: service_started}
+      synthetic-downstream: {condition: service_started}

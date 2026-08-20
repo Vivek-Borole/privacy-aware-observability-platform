@@ -26,6 +26,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm console:typecheck
       - run: pnpm console:build
+      - run: pnpm synthetic:typecheck
       - run: go vet ./...
       - run: go test -race ./...
       - run: pnpm audit --audit-level=high

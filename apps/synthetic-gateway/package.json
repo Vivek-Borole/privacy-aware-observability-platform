@@ -1,0 +1,13 @@
+{
+  "name": "@paop/synthetic-gateway",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "typescript": "^7.0.2"
+  }
+}

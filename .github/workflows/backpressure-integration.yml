@@ -1,0 +1,19 @@
+name: backpressure integration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backpressure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - run: bash scripts/backpressure-smoke.sh
+      - if: always()
+        run: docker compose logs --no-color

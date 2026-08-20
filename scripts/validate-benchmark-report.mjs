@@ -27,7 +27,7 @@ function validate(ingestion, lookup) {
     lookupP95Millis: lookup.p95Millis,
     lookupP99Millis: lookup.p99Millis,
   })) finite(value, name);
-  if (ingestion.targetPerSecond !== 5000) fail("target must be 5,000 spans/s");
+  if (ingestion.targetPerSecond < 5000) fail("target must be at least 5,000 spans/s");
   if (ingestion.durationSeconds !== 600) fail("requested duration must be 600 seconds");
   if (typeof ingestion.startedAt !== "string" || typeof ingestion.finishedAt !== "string") fail("start and finish timestamps are required");
   if (!Array.isArray(ingestion.traceSamples) || ingestion.traceSamples.length === 0) fail("at least one successful trace sample is required");

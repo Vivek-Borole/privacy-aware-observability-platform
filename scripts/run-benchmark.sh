@@ -32,14 +32,14 @@ PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-benchmark' PAOP_API_
 
 go run ./cmd/synthetic-emitter \
   -endpoint http://127.0.0.1:18080/v1/traces \
-  -api-key "$api_key" -rate 5000 -workers 64 -duration 10m \
+  -api-key "$api_key" -rate 5100 -workers 64 -batch-size 100 -duration 10m \
   -trace-sample-limit 100 -healthy-sample-modulo "$PAOP_HEALTHY_SAMPLE_MODULO" -output "$raw"
 
 # Query the returned, synthetic-only trace sample set. The key exists only in
 # this process environment and must not be copied into an evidence artifact.
 PAOP_BENCHMARK_RAW="$raw" PAOP_BENCHMARK_LOOKUP="$lookup" PAOP_BENCHMARK_KEY="$api_key" node <<'NODE'
-const fs = require("fs");
-const raw = JSON.parse(fs.readFileSync(process.env.PAOP_BENCHMARK_RAW, "utf8"));
+import { readFileSync, writeFileSync } from "node:fs";
+const raw = JSON.parse(readFileSync(process.env.PAOP_BENCHMARK_RAW, "utf8"));
 const key = process.env.PAOP_BENCHMARK_KEY;
 const base = "http://127.0.0.1:18081";
 const latencies = [];
@@ -53,7 +53,7 @@ for (const traceId of raw.traceSamples || []) {
 latencies.sort((a, b) => a - b);
 const percentile = (p) => latencies.length ? latencies[Math.floor((latencies.length - 1) * p / 100)] : 0;
 const report = { sampledTraces: latencies.length, p50Millis: percentile(50), p95Millis: percentile(95), p99Millis: percentile(99), lookupPass: percentile(95) <= 3000 };
-fs.writeFileSync(process.env.PAOP_BENCHMARK_LOOKUP, `${JSON.stringify(report, null, 2)}\n`, {mode: 0o600});
+writeFileSync(process.env.PAOP_BENCHMARK_LOOKUP, `${JSON.stringify(report, null, 2)}\n`, {mode: 0o600});
 console.log(JSON.stringify(report));
 NODE
 

@@ -79,41 +79,34 @@ func (s *Store) StageBatch(ctx context.Context, envelopes []ingest.Envelope) err
 	if _, err := tx.ExecContext(ctx, `select pg_advisory_xact_lock(hashtext($1))`, tenantID); err != nil {
 		return err
 	}
+	byTrace := make(map[string][]ingest.Envelope)
 	for _, envelope := range envelopes {
-		if err := s.stageTx(ctx, tx, envelope); err != nil {
+		traceID := tailTraceID(envelope)
+		byTrace[traceID] = append(byTrace[traceID], envelope)
+	}
+	for traceID, traceEnvelopes := range byTrace {
+		if err := s.stageTraceTx(ctx, tx, tenantID, traceID, traceEnvelopes); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-func (s *Store) stageTx(ctx context.Context, tx *sql.Tx, envelope ingest.Envelope) error {
-	traceID := tailTraceID(envelope)
-	dedup, err := tx.ExecContext(ctx, `insert into tail_event_keys(event_key, tenant_id, trace_id) values ($1, $2, $3) on conflict (event_key) do nothing`, envelope.EventKey, envelope.TenantID, traceID)
-	if err != nil {
-		return err
-	}
-	inserted, err := dedup.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if inserted == 0 {
-		return nil
-	}
+func (s *Store) stageTraceTx(ctx context.Context, tx *sql.Tx, tenantID, traceID string, envelopes []ingest.Envelope) error {
 	var spanCount int
 	var decidedAt sql.NullTime
-	err = tx.QueryRowContext(ctx, `select span_count, decided_at from tail_traces where tenant_id = $1 and trace_id = $2 for update`, envelope.TenantID, traceID).Scan(&spanCount, &decidedAt)
+	err := tx.QueryRowContext(ctx, `select span_count, decided_at from tail_traces where tenant_id = $1 and trace_id = $2 for update`, tenantID, traceID).Scan(&spanCount, &decidedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		var activeTraces int
-		if err := tx.QueryRowContext(ctx, `select count(*) from tail_traces where tenant_id = $1 and decided_at is null`, envelope.TenantID).Scan(&activeTraces); err != nil {
+		if err := tx.QueryRowContext(ctx, `select count(*) from tail_traces where tenant_id = $1 and decided_at is null`, tenantID).Scan(&activeTraces); err != nil {
 			return err
 		}
 		if activeTraces >= defaultTailMaxTraces {
-			if err := s.evictOldestTailTrace(ctx, tx, envelope.TenantID, "evicted_pressure"); err != nil {
+			if err := s.evictOldestTailTrace(ctx, tx, tenantID, "evicted_pressure"); err != nil {
 				return err
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `insert into tail_traces(tenant_id, trace_id) values ($1, $2)`, envelope.TenantID, traceID); err != nil {
+		if _, err := tx.ExecContext(ctx, `insert into tail_traces(tenant_id, trace_id) values ($1, $2)`, tenantID, traceID); err != nil {
 			return err
 		}
 		spanCount = 0
@@ -123,28 +116,63 @@ func (s *Store) stageTx(ctx context.Context, tx *sql.Tx, envelope ingest.Envelop
 		return ErrTailTraceClosed
 	}
 
-	payload, err := json.Marshal(envelope)
+	eventKeys := make([]string, 0, len(envelopes))
+	for _, envelope := range envelopes {
+		eventKeys = append(eventKeys, envelope.EventKey)
+	}
+	rows, err := tx.QueryContext(ctx, `
+insert into tail_event_keys(event_key, tenant_id, trace_id)
+select event_key, $1, $2 from unnest($3::text[]) as batch(event_key)
+on conflict (event_key) do nothing
+returning event_key`, tenantID, traceID, eventKeys)
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `insert into tail_buffers(event_key, tenant_id, trace_id, envelope) values ($1, $2, $3, $4::jsonb)`, envelope.EventKey, envelope.TenantID, traceID, string(payload))
-	if err != nil {
-		return err
-	}
-	bufferInserted, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if bufferInserted != 1 {
-		return errors.New("tail buffer insert did not create one row")
-	}
-	if spanCount >= defaultTailMaxSpans {
-		if err := s.evictTailTrace(ctx, tx, envelope.TenantID, traceID, "evicted_span_limit"); err != nil {
+	insertedKeys := make(map[string]struct{}, len(envelopes))
+	for rows.Next() {
+		var eventKey string
+		if err := rows.Scan(&eventKey); err != nil {
+			rows.Close()
 			return err
 		}
+		insertedKeys[eventKey] = struct{}{}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(insertedKeys) == 0 {
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, `update tail_traces set last_seen = now(), generation = generation + 1, span_count = span_count + 1 where tenant_id = $1 and trace_id = $2 and decided_at is null`, envelope.TenantID, traceID); err != nil {
+	if spanCount+len(insertedKeys) > defaultTailMaxSpans {
+		return ErrTailTraceClosed
+	}
+	bufferKeys := make([]string, 0, len(insertedKeys))
+	payloads := make([]string, 0, len(insertedKeys))
+	for _, envelope := range envelopes {
+		if _, inserted := insertedKeys[envelope.EventKey]; !inserted {
+			continue
+		}
+		payload, err := json.Marshal(envelope)
+		if err != nil {
+			return err
+		}
+		bufferKeys = append(bufferKeys, envelope.EventKey)
+		payloads = append(payloads, string(payload))
+	}
+	result, err := tx.ExecContext(ctx, `
+insert into tail_buffers(event_key, tenant_id, trace_id, envelope)
+select batch.event_key, $1, $2, batch.payload::jsonb
+from unnest($3::text[], $4::text[]) as batch(event_key, payload)`, tenantID, traceID, bufferKeys, payloads)
+	if err != nil {
+		return err
+	}
+	if inserted, err := result.RowsAffected(); err != nil || int(inserted) != len(bufferKeys) {
+		if err != nil {
+			return err
+		}
+		return errors.New("tail buffer insert did not create every deduplicated event")
+	}
+	if _, err := tx.ExecContext(ctx, `update tail_traces set last_seen = now(), generation = generation + 1, span_count = span_count + $3 where tenant_id = $1 and trace_id = $2 and decided_at is null`, tenantID, traceID, len(bufferKeys)); err != nil {
 		return err
 	}
 	return nil

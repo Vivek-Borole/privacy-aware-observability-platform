@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/ingest"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/redaction"
@@ -57,6 +58,21 @@ func TestProcessSkipsPreviouslyPersistedEvent(t *testing.T) {
 	}
 	if sink.calls != 0 || ledger.persisted != 0 {
 		t.Fatalf("duplicate was persisted: sink=%d ledger=%d", sink.calls, ledger.persisted)
+	}
+}
+
+func TestRetentionMutationBindsTenantAndCutoff(t *testing.T) {
+	var tenant, cutoff, statement string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tenant, cutoff, statement = r.URL.Query().Get("param_tenant"), r.URL.Query().Get("param_cutoff"), r.URL.Query().Get("query")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	if err := NewClickHouse(server.URL).DeleteOlderThan(context.Background(), "tenant-a", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if tenant != "tenant-a" || cutoff == "" || !strings.Contains(statement, "tenant_id = {tenant:String}") {
+		t.Fatalf("unsafe retention query tenant=%q cutoff=%q statement=%q", tenant, cutoff, statement)
 	}
 }
 

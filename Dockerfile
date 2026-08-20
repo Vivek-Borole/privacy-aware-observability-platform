@@ -7,6 +7,12 @@ RUN CGO_ENABLED=0 go build -o /gateway ./cmd/gateway
 RUN CGO_ENABLED=0 go build -o /persist ./cmd/persist
 RUN CGO_ENABLED=0 go build -o /query ./cmd/query
 RUN CGO_ENABLED=0 go build -o /synthetic-emitter ./cmd/synthetic-emitter
+RUN CGO_ENABLED=0 go build -o /retention ./cmd/retention
+
+FROM gcr.io/distroless/static-debian12:nonroot AS retention
+COPY --from=build /retention /retention
+USER nonroot:nonroot
+ENTRYPOINT ["/retention"]
 
 FROM build AS migrate
 ENTRYPOINT ["go", "run", "./cmd/migrate"]

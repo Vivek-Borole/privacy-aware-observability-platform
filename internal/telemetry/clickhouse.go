@@ -131,3 +131,32 @@ func (c *ClickHouse) QueryTrace(ctx context.Context, tenantID, traceID string) (
 	}
 	return spans, nil
 }
+
+// DeleteOlderThan uses ClickHouse named parameters, keeping the tenant policy
+// scope separate from untrusted query input. Mutations are asynchronous in
+// ClickHouse; callers record the request as an audit action, not an immediate
+// physical-deletion claim.
+func (c *ClickHouse) DeleteOlderThan(ctx context.Context, tenantID string, cutoff time.Time) error {
+	endpoint, err := url.Parse(c.endpoint + "/")
+	if err != nil {
+		return err
+	}
+	values := endpoint.Query()
+	values.Set("query", "ALTER TABLE telemetry.spans DELETE WHERE tenant_id = {tenant:String} AND ingested_at < {cutoff:DateTime64(3)}")
+	values.Set("param_tenant", tenantID)
+	values.Set("param_cutoff", cutoff.UTC().Format("2006-01-02 15:04:05.000"))
+	endpoint.RawQuery = values.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)
+	if err != nil {
+		return err
+	}
+	response, err := c.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		return fmt.Errorf("clickhouse status class %d", response.StatusCode/100)
+	}
+	return nil
+}

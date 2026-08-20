@@ -12,6 +12,10 @@ import (
 )
 
 type Store struct{ db *sql.DB }
+type RetentionPolicy struct {
+	TenantID string
+	Days     int
+}
 
 func Open(databaseURL string) (*Store, error) {
 	db, err := sql.Open("pgx", databaseURL)
@@ -95,4 +99,21 @@ func (s *Store) MarkPersisted(ctx context.Context, eventKey string) error {
 func (s *Store) RecordLoss(ctx context.Context, eventKey, errorClass string) error {
 	_, err := s.db.ExecContext(ctx, `update delivery_ledger set status = 'loss_evidenced', last_error_class = $2, updated_at = now() where event_key = $1 and status = 'pending'`, eventKey, errorClass)
 	return err
+}
+
+func (s *Store) RetentionPolicies(ctx context.Context) ([]RetentionPolicy, error) {
+	rows, err := s.db.QueryContext(ctx, `select t.id, coalesce(r.retention_days, 30) from tenants t left join tenant_retention r on r.tenant_id = t.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var policies []RetentionPolicy
+	for rows.Next() {
+		var policy RetentionPolicy
+		if err := rows.Scan(&policy.TenantID, &policy.Days); err != nil {
+			return nil, err
+		}
+		policies = append(policies, policy)
+	}
+	return policies, rows.Err()
 }

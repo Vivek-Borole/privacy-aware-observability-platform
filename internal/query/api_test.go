@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/ingest"
+	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/metadata"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/telemetry"
 )
 
@@ -14,6 +15,12 @@ type storeStub struct{ tenant, trace string }
 type deletionStub struct {
 	tenant, action   string
 	deleted, audited bool
+}
+type auditReaderStub struct{ tenant string }
+
+func (s *auditReaderStub) AuditEvents(_ context.Context, tenant string, _ int) ([]metadata.AuditEvent, error) {
+	s.tenant = tenant
+	return []metadata.AuditEvent{{Action: "safe_action"}}, nil
 }
 
 func (s *deletionStub) DeleteTenantTelemetry(_ context.Context, tenant string) error {
@@ -92,5 +99,17 @@ func TestDeletionRequiresConfirmationAndUsesAuthenticatedTenant(t *testing.T) {
 	api.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || deletion.tenant != "tenant-a" || !deletion.deleted || !deletion.audited || deletion.action != "tenant_telemetry_deletion_requested" {
 		t.Fatalf("unsafe deletion: status=%d %#v", response.Code, deletion)
+	}
+}
+
+func TestAuditUsesAuthenticatedTenantNotClientInput(t *testing.T) {
+	store, audit := &storeStub{}, &auditReaderStub{}
+	api := API{Authenticator: ingest.NewAPIKeyAuthenticator(map[string]string{"tenant-a": "key-a"}), Store: store, AuditReader: audit}
+	request := httptest.NewRequest(http.MethodGet, "/v1/audit?tenantId=tenant-b", nil)
+	request.Header.Set("X-PAOP-API-Key", "key-a")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || audit.tenant != "tenant-a" {
+		t.Fatalf("status=%d tenant=%q", response.Code, audit.tenant)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -16,6 +17,11 @@ type Store struct{ db *sql.DB }
 type RetentionPolicy struct {
 	TenantID string
 	Days     int
+}
+type AuditEvent struct {
+	Action       string            `json:"action"`
+	SafeMetadata map[string]string `json:"safeMetadata"`
+	CreatedAt    time.Time         `json:"createdAt"`
 }
 
 func Open(databaseURL string) (*Store, error) {
@@ -127,4 +133,30 @@ func (s *Store) RecordAudit(ctx context.Context, tenantID, action string, safeMe
 	}
 	_, err = s.db.ExecContext(ctx, `insert into audit_events(tenant_id, action, safe_metadata) values ($1, $2, $3::jsonb)`, tenantID, action, string(payload))
 	return err
+}
+
+// AuditEvents returns only the authenticated tenant's structured operational
+// evidence. The data model deliberately excludes telemetry payloads.
+func (s *Store) AuditEvents(ctx context.Context, tenantID string, limit int) ([]AuditEvent, error) {
+	if limit < 1 || limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `select action, safe_metadata, created_at from audit_events where tenant_id = $1 order by id desc limit $2`, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []AuditEvent
+	for rows.Next() {
+		var event AuditEvent
+		var metadata []byte
+		if err := rows.Scan(&event.Action, &metadata, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(metadata, &event.SafeMetadata); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
 }

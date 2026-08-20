@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/ingest"
+	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/metadata"
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/telemetry"
 )
 
@@ -23,11 +24,15 @@ type TenantDeleter interface {
 type AuditSink interface {
 	RecordAudit(context.Context, string, string, map[string]string) error
 }
+type AuditReader interface {
+	AuditEvents(context.Context, string, int) ([]metadata.AuditEvent, error)
+}
 type API struct {
 	Authenticator ingest.Authenticator
 	Store         TraceStore
 	Deleter       TenantDeleter
 	Auditor       AuditSink
+	AuditReader   AuditReader
 }
 
 var traceID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -92,6 +97,19 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"windowHours": 24, "dependencies": dependencies})
+		return
+	}
+	if r.URL.Path == "/v1/audit" {
+		if a.AuditReader == nil {
+			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		events, err := a.AuditReader.AuditEvents(r.Context(), tenant, 100)
+		if err != nil {
+			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"events": events})
 		return
 	}
 	if !strings.HasPrefix(r.URL.Path, "/v1/traces/") {

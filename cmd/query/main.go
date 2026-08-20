@@ -19,7 +19,7 @@ func main() {
 	}
 	defer store.Close()
 	clickhouse := telemetry.NewClickHouse(required("PAOP_CLICKHOUSE_URL"))
-	handler := cors(query.API{Authenticator: store, Store: clickhouse, Deleter: clickhouse, Auditor: store}, valueOr("PAOP_CONSOLE_ORIGIN", "http://localhost:5173"))
+	handler := cors(query.API{Authenticator: store, Store: clickhouse, Deleter: clickhouse, Auditor: store, AuditReader: store}, valueOr("PAOP_CONSOLE_ORIGIN", "http://localhost:5173"))
 	server := &http.Server{Addr: valueOr("PAOP_QUERY_LISTEN_ADDR", ":8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	slog.Info("query API listening", "address", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

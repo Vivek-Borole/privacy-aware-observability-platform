@@ -17,6 +17,12 @@ observed service resource use and any failure conditions. The machine-readable
 validator requires a full ten-minute run, zero failures, at least 5,000 actual
 accepted spans/second, and sanitized trace lookup p95 at most three seconds.
 
+The regular Compose demo retains every healthy trace (`PAOP_HEALTHY_SAMPLE_MODULO=1`)
+so a small fabricated scenario is predictable. The benchmark overrides it to
+`100`, retaining deterministic one-percent healthy samples while still
+measuring every accepted ingest request. Its stored lookup sample contains only
+trace IDs selected by that same FNV-1a decision rule.
+
 The command writes a result only after the actual run. No benchmark result is
 committed or claimed before that local workload finishes. Validate an existing
 synthetic report with:

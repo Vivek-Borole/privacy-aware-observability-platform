@@ -86,7 +86,7 @@ services:
       PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
       PAOP_KAFKA_BROKERS: redpanda:9092
       PAOP_TAIL_QUIET: 1s
-      PAOP_HEALTHY_SAMPLE_MODULO: 1
+      PAOP_HEALTHY_SAMPLE_MODULO: ${PAOP_HEALTHY_SAMPLE_MODULO:-1}
     depends_on:
       postgres: {condition: service_healthy}
       redpanda: {condition: service_started}

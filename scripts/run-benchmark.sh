@@ -12,6 +12,11 @@ raw="$evidence_dir/ingestion-benchmark.raw.json"
 lookup="$evidence_dir/lookup-benchmark.raw.json"
 environment="$evidence_dir/benchmark-environment.txt"
 
+# Preserve one percent of healthy traces during the benchmark. The normal local
+# demo defaults to one so its small synthetic trace is deterministic, but that
+# would make the high-volume run measure all-retained behavior rather than the
+# platform's bounded tail-sampling design.
+export PAOP_HEALTHY_SAMPLE_MODULO=100
 "${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate tailer persist gateway query
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-benchmark' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 
@@ -28,7 +33,7 @@ PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-benchmark' PAOP_API_
 go run ./cmd/synthetic-emitter \
   -endpoint http://127.0.0.1:18080/v1/traces \
   -api-key "$api_key" -rate 5000 -workers 64 -duration 10m \
-  -trace-sample-limit 100 -output "$raw"
+  -trace-sample-limit 100 -healthy-sample-modulo "$PAOP_HEALTHY_SAMPLE_MODULO" -output "$raw"
 
 # Query the returned, synthetic-only trace sample set. The key exists only in
 # this process environment and must not be copied into an evidence artifact.

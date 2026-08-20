@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"os"
 	"runtime"
@@ -44,9 +45,10 @@ func main() {
 	workers := flag.Int("workers", 4, "concurrent request workers")
 	output := flag.String("output", "", "optional JSON result file")
 	sampleLimit := flag.Int("trace-sample-limit", 100, "maximum successful trace IDs retained for later lookup measurement")
+	sampleModulo := flag.Int("healthy-sample-modulo", 1, "record trace samples selected by this deterministic healthy-sampling modulo")
 	flag.Parse()
-	if *key == "" || *rate < 1 || *workers < 1 || *sampleLimit < 0 {
-		fmt.Fprintln(os.Stderr, "api-key, positive rate, and positive workers are required")
+	if *key == "" || *rate < 1 || *workers < 1 || *sampleLimit < 0 || *sampleModulo < 1 {
+		fmt.Fprintln(os.Stderr, "api-key, positive rate, positive workers, and positive healthy-sample-modulo are required")
 		os.Exit(2)
 	}
 
@@ -76,7 +78,7 @@ func main() {
 						if response.StatusCode == http.StatusAccepted {
 							atomic.AddInt64(&accepted, 1)
 							samplesLock.Lock()
-							if len(traceSamples) < *sampleLimit {
+							if len(traceSamples) < *sampleLimit && sampled(traceID, *sampleModulo) {
 								traceSamples = append(traceSamples, traceID)
 							}
 							samplesLock.Unlock()
@@ -147,4 +149,10 @@ func percentile(values []float64, percentile int) float64 {
 		return 0
 	}
 	return values[(len(values)-1)*percentile/100]
+}
+
+func sampled(traceID string, modulo int) bool {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(traceID))
+	return int(h.Sum32()%uint32(modulo)) == 0
 }

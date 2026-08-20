@@ -45,7 +45,9 @@ labels. The collector is deliberately not a raw tenant-telemetry ingest path.
 
 The synthetic smoke test verifies that the collector exposes the internal
 `paop_http_requests_total` metric and rejects unsafe content in those metric
-labels.
+labels. Its local demo tail sampler uses `PAOP_HEALTHY_SAMPLE_MODULO=1` for a
+predictable fabricated trace; the benchmark changes this to the documented
+one-percent healthy sample.
 
 ## Synthetic distributed demo
 

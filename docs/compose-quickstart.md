@@ -13,7 +13,9 @@ The smoke command starts PostgreSQL, Redpanda, ClickHouse, migrations, gateway,
 persistence worker, tail-sampling worker, and query API. It creates a local
 synthetic tenant, sends a seeded OTLP/HTTP trace and a trace-linked OTLP log,
 waits for persistence, verifies redaction, explicit sampling evidence, and
-tenant-scoped lookup, then rejects any raw seed in service logs.
+tenant-scoped lookup, then rejects any raw seed in PostgreSQL, Redpanda,
+ClickHouse, service logs, and metrics. The Redpanda assertion uses an in-memory
+audit command that reports only a message count, never broker payloads.
 
 For the investigation console:
 

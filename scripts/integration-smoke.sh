@@ -111,6 +111,8 @@ if [[ "$clickhouse_dump" == *'smoke-secret-must-not-persist'* || "$clickhouse_du
   echo 'secret or PII appeared in ClickHouse' >&2
   exit 1
 fi
+PAOP_KAFKA_BROKERS='127.0.0.1:19092' go run ./cmd/broker-audit \
+  -forbidden 'smoke-secret-must-not-persist,smoke.user@example.test,synthetic.user@example.test,synthetic-integration-key-not-for-production,synthetic-other-tenant-key-not-for-production'
 deletion=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --request POST 'http://127.0.0.1:18081/v1/retention/delete' --header "x-paop-api-key: $api_key" --header 'x-paop-delete-confirm: DELETE_SANITIZED_TELEMETRY')
 [[ "$deletion" == *'"state":"mutation_requested"'* ]]
 database_after_deletion=$("${compose[@]}" exec -T postgres pg_dump -U paop paop)

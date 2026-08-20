@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -38,12 +39,14 @@ func TestClickHousePersistsOnlySanitizedEnvelope(t *testing.T) {
 type fakeLedger struct {
 	claim     bool
 	persisted int
+	claimErr  error
+	markErr   error
 }
 
 func (f *fakeLedger) ClaimDelivery(context.Context, string, string) (bool, error) {
-	return f.claim, nil
+	return f.claim, f.claimErr
 }
-func (f *fakeLedger) MarkPersisted(context.Context, string) error      { f.persisted++; return nil }
+func (f *fakeLedger) MarkPersisted(context.Context, string) error      { f.persisted++; return f.markErr }
 func (f *fakeLedger) RecordLoss(context.Context, string, string) error { return nil }
 
 type fakeSink struct{ calls int }
@@ -58,6 +61,35 @@ func TestProcessSkipsPreviouslyPersistedEvent(t *testing.T) {
 	}
 	if sink.calls != 0 || ledger.persisted != 0 {
 		t.Fatalf("duplicate was persisted: sink=%d ledger=%d", sink.calls, ledger.persisted)
+	}
+}
+
+type failingSink struct{ calls int }
+
+func (f *failingSink) Persist(context.Context, ingest.Envelope) error {
+	f.calls++
+	return errors.New("storage unavailable")
+}
+
+func TestProcessFailureNeverMarksDeliveryPersisted(t *testing.T) {
+	ledger, sink := &fakeLedger{claim: true}, &failingSink{}
+	consumer := &Consumer{ledger: ledger, sink: sink}
+	if err := consumer.Process(context.Background(), ingest.Envelope{TenantID: "tenant-a", EventKey: "tenant-a:e1"}); err == nil {
+		t.Fatal("expected persistence error")
+	}
+	if sink.calls != 1 || ledger.persisted != 0 {
+		t.Fatalf("failure incorrectly committed: sink=%d persisted=%d", sink.calls, ledger.persisted)
+	}
+}
+
+func TestProcessLedgerFailureNeverCallsSink(t *testing.T) {
+	ledger, sink := &fakeLedger{claimErr: errors.New("ledger unavailable")}, &fakeSink{}
+	consumer := &Consumer{ledger: ledger, sink: sink}
+	if err := consumer.Process(context.Background(), ingest.Envelope{TenantID: "tenant-a", EventKey: "tenant-a:e1"}); err == nil {
+		t.Fatal("expected ledger error")
+	}
+	if sink.calls != 0 || ledger.persisted != 0 {
+		t.Fatalf("ledger failure leaked to sink: sink=%d persisted=%d", sink.calls, ledger.persisted)
 	}
 }
 

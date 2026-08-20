@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-type Span = { eventKey: string; spanId: string; name: string; ingestedAt: string; attributes: Record<string, string>; policyVersion: string; redactedPaths: string[] };
+type Span = { eventKey: string; spanId: string; parentSpanId?: string; name: string; ingestedAt: string; attributes: Record<string, string>; policyVersion: string; redactedPaths: string[] };
 type Result = { traceId: string; spans: Span[] };
 type Metrics = { windowHours: number; spanCount: number; traceCount: number; errorCount: number };
 type Dependency = { source: string; target: string; count: number };
@@ -76,7 +76,7 @@ function App() {
     {metrics && <section className="metrics" aria-label="Tenant metrics for the last 24 hours"><article><strong>{metrics.spanCount}</strong><span>sanitized spans</span></article><article><strong>{metrics.traceCount}</strong><span>visible traces</span></article><article><strong>{metrics.errorCount}</strong><span>error-marked spans</span></article></section>}
     {dependencies && <section className="dependencies" aria-label="Tenant service dependency map"><h2>Service dependencies · last 24 hours</h2>{dependencies.dependencies.map((edge) => <article key={`${edge.source}:${edge.target}`}><strong>{edge.source}</strong><span aria-hidden="true"> → </span><strong>{edge.target}</strong><small>{edge.count} observed edge{edge.count === 1 ? "" : "s"}</small></article>)}</section>}
     {audit && <section className="audit" aria-label="Tenant audit timeline"><h2>Safe audit timeline</h2>{audit.events.map((event, index) => <article key={`${event.action}:${event.createdAt}:${index}`}><strong>{event.action}</strong><small>{event.createdAt || "timestamp unavailable"}</small><pre>{JSON.stringify(event.safeMetadata, null, 2)}</pre></article>)}</section>}
-    {result?.spans.map((span) => <article key={span.eventKey}><div><strong>{span.name}</strong><code>{span.spanId}</code></div><p>Policy {span.policyVersion}; redacted fields: {span.redactedPaths.join(", ") || "none"}</p><pre>{JSON.stringify(span.attributes, null, 2)}</pre></article>)}
+    {result?.spans.map((span) => <article key={span.eventKey}><div><strong>{span.name}</strong><code>{span.spanId}</code></div><p>{span.parentSpanId ? `Causal parent: ${span.parentSpanId}` : "Trace root"} · Policy {span.policyVersion}; redacted fields: {span.redactedPaths.join(", ") || "none"}</p><pre>{JSON.stringify(span.attributes, null, 2)}</pre></article>)}
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<App />);

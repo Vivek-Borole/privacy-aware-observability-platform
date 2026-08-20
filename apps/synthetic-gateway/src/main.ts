@@ -12,8 +12,8 @@ function required(name: string): string {
   return value;
 }
 function id(bytes: number): string { return randomBytes(bytes).toString("hex"); }
-async function emit(traceId: string): Promise<void> {
-  const payload = { resourceSpans: [{ resource: { attributes: [{ key: "service.name", value: { stringValue: "synthetic-typescript-gateway" } }] }, scopeSpans: [{ spans: [{ traceId, spanId: id(8), name: "POST /checkout", attributes: [
+async function emit(traceId: string, spanId: string): Promise<void> {
+  const payload = { resourceSpans: [{ resource: { attributes: [{ key: "service.name", value: { stringValue: "synthetic-typescript-gateway" } }] }, scopeSpans: [{ spans: [{ traceId, spanId, name: "POST /checkout", attributes: [
     { key: "http.method", value: { stringValue: "POST" } },
     { key: "http.status_code", value: { intValue: "202" } },
     { key: "peer.service", value: { stringValue: "synthetic-go-downstream" } },
@@ -25,9 +25,10 @@ async function emit(traceId: string): Promise<void> {
 async function checkout(request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (request.method !== "POST" || request.url !== "/checkout") { response.statusCode = 404; response.end(); return; }
   const traceId = id(16);
+  const spanId = id(8);
   try {
-    await emit(traceId);
-    const downstream = await fetch(`${downstreamURL}/checkout`, { method: "POST", headers: { "x-synthetic-trace-id": traceId }, signal: AbortSignal.timeout(3000) });
+    await emit(traceId, spanId);
+    const downstream = await fetch(`${downstreamURL}/checkout`, { method: "POST", headers: { "x-synthetic-trace-id": traceId, "x-synthetic-parent-span-id": spanId }, signal: AbortSignal.timeout(3000) });
     if (downstream.status !== 202) throw new Error("downstream unavailable");
     response.statusCode = 202; response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ traceId, status: "accepted" }));
   } catch {

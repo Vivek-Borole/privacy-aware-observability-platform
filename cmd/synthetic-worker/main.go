@@ -18,11 +18,12 @@ func main() {
 			return
 		}
 		traceID := r.Header.Get("X-Synthetic-Trace-ID")
+		parentSpanID := r.Header.Get("X-Synthetic-Parent-Span-ID")
 		if traceID == "" {
 			http.Error(w, "trace required", http.StatusBadRequest)
 			return
 		}
-		if err := emitter.Emit(r.Context(), traceID, "process checkout job", "synthetic-async-worker", map[string]string{"messaging.system": "redpanda", "messaging.operation": "process", "peer.service": "synthetic-go-downstream"}); err != nil {
+		if _, err := emitter.Emit(r.Context(), traceID, parentSpanID, "process checkout job", "synthetic-async-worker", map[string]string{"messaging.system": "redpanda", "messaging.operation": "process", "peer.service": "synthetic-go-downstream"}); err != nil {
 			slog.Warn("synthetic span unavailable", "errorClass", "ingest_unavailable")
 			http.Error(w, "telemetry unavailable", http.StatusServiceUnavailable)
 			return

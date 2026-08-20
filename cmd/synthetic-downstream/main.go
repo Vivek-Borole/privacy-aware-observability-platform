@@ -21,11 +21,13 @@ func main() {
 			return
 		}
 		traceID := r.Header.Get("X-Synthetic-Trace-ID")
+		parentSpanID := r.Header.Get("X-Synthetic-Parent-Span-ID")
 		if traceID == "" {
 			http.Error(w, "trace required", http.StatusBadRequest)
 			return
 		}
-		if err := emitter.Emit(r.Context(), traceID, "postgres checkout lookup", "synthetic-go-downstream", map[string]string{"db.system": "postgresql", "peer.service": "synthetic-async-worker", "messaging.destination": "synthetic-checkout-jobs"}); err != nil {
+		spanID, err := emitter.Emit(r.Context(), traceID, parentSpanID, "postgres checkout lookup", "synthetic-go-downstream", map[string]string{"db.system": "postgresql", "peer.service": "synthetic-async-worker", "messaging.destination": "synthetic-checkout-jobs"})
+		if err != nil {
 			slog.Warn("synthetic span unavailable", "errorClass", "ingest_unavailable")
 			http.Error(w, "telemetry unavailable", http.StatusServiceUnavailable)
 			return
@@ -36,6 +38,7 @@ func main() {
 			return
 		}
 		request.Header.Set("X-Synthetic-Trace-ID", traceID)
+		request.Header.Set("X-Synthetic-Parent-Span-ID", spanID)
 		response, err := client.Do(request)
 		if err != nil || response.StatusCode != http.StatusAccepted {
 			if response != nil {

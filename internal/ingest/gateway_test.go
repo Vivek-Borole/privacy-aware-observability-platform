@@ -64,3 +64,16 @@ func TestGatewayAcceptsOTLPJSONAndRedactsBeforePublish(t *testing.T) {
 		}
 	}
 }
+
+func TestGatewayPreservesTechnicalParentSpanIdentifier(t *testing.T) {
+	publisher := &MemoryPublisher{}
+	gateway := Gateway{Authenticator: NewAPIKeyAuthenticator(map[string]string{"tenant": "key"}), Publisher: publisher, PolicyVersion: "v1"}
+	payload := `{"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"trace-parent-1","spanId":"span-child-1","parentSpanId":"span-parent-1","name":"child"}]}]}]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader(payload))
+	request.Header.Set("X-PAOP-API-Key", "key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || len(publisher.Envelopes) != 1 || publisher.Envelopes[0].Event.ParentSpanID != "span-parent-1" {
+		t.Fatalf("causal relationship lost: status=%d envelopes=%#v", response.Code, publisher.Envelopes)
+	}
+}

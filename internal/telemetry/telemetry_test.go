@@ -18,7 +18,7 @@ func TestClickHousePersistsOnlySanitizedEnvelope(t *testing.T) {
 	var body string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { body = mustRead(t, r); w.WriteHeader(http.StatusOK) }))
 	defer server.Close()
-	envelope := ingest.Envelope{TenantID: "tenant-a", EventKey: "tenant-a:e1", Event: ingest.Event{EventID: "e1", TraceID: "t1", SpanID: "s1", Name: "checkout", Attributes: map[string]string{"authorization": "[REDACTED]", "email": "[REDACTED_EMAIL]"}}, Policy: redaction.Receipt{PolicyVersion: "v1", RedactedPaths: []string{"attributes.authorization", "attributes.email"}}}
+	envelope := ingest.Envelope{TenantID: "tenant-a", EventKey: "tenant-a:e1", Event: ingest.Event{EventID: "e1", TraceID: "t1", SpanID: "s1", ParentSpanID: "parent-1", Name: "checkout", Attributes: map[string]string{"authorization": "[REDACTED]", "email": "[REDACTED_EMAIL]"}}, Policy: redaction.Receipt{PolicyVersion: "v1", RedactedPaths: []string{"attributes.authorization", "attributes.email"}}}
 	if err := NewClickHouse(server.URL).Persist(context.Background(), envelope); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestClickHousePersistsOnlySanitizedEnvelope(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored.EventKey != "tenant-a:e1" || stored.PolicyVersion != "v1" {
+	if stored.EventKey != "tenant-a:e1" || stored.PolicyVersion != "v1" || stored.ParentSpanID != "parent-1" {
 		t.Fatalf("unexpected row %#v", stored)
 	}
 }

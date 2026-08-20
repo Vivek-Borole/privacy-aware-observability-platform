@@ -11,7 +11,7 @@
     "schemas": {
       "Error": {"type": "object", "properties": {"error": {"type": "string"}}},
       "Trace": {"type": "object", "required": ["traceId", "spans"], "properties": {"traceId": {"type": "string"}, "spans": {"type": "array", "items": {"$ref": "#/components/schemas/Span"}}}},
-      "Span": {"type": "object", "properties": {"eventKey": {"type": "string"}, "spanId": {"type": "string"}, "name": {"type": "string"}, "attributes": {"type": "object", "additionalProperties": {"type": "string"}}, "policyVersion": {"type": "string"}, "redactedPaths": {"type": "array", "items": {"type": "string"}}, "ingestedAt": {"type": "string"}}},
+      "Span": {"type": "object", "properties": {"eventKey": {"type": "string"}, "spanId": {"type": "string"}, "parentSpanId": {"type": "string"}, "name": {"type": "string"}, "attributes": {"type": "object", "additionalProperties": {"type": "string"}}, "policyVersion": {"type": "string"}, "redactedPaths": {"type": "array", "items": {"type": "string"}}, "ingestedAt": {"type": "string"}}},
       "Metrics": {"type": "object", "required": ["windowHours", "spanCount", "traceCount", "errorCount"], "properties": {"windowHours": {"type": "integer"}, "spanCount": {"type": "integer"}, "traceCount": {"type": "integer"}, "errorCount": {"type": "integer"}}},
       "Dependency": {"type": "object", "required": ["source", "target", "count"], "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "count": {"type": "integer"}}},
       "AuditEvent": {"type": "object", "required": ["action", "safeMetadata", "createdAt"], "properties": {"action": {"type": "string"}, "safeMetadata": {"type": "object", "additionalProperties": {"type": "string"}}, "createdAt": {"type": "string", "format": "date-time"}}},

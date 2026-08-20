@@ -30,6 +30,7 @@ type row struct {
 	EventID        string   `json:"event_id"`
 	TraceID        string   `json:"trace_id"`
 	SpanID         string   `json:"span_id"`
+	ParentSpanID   string   `json:"parent_span_id"`
 	Name           string   `json:"name"`
 	AttributesJSON string   `json:"attributes_json"`
 	PolicyVersion  string   `json:"policy_version"`
@@ -42,6 +43,7 @@ type Span struct {
 	EventID       string            `json:"eventId"`
 	TraceID       string            `json:"traceId"`
 	SpanID        string            `json:"spanId"`
+	ParentSpanID  string            `json:"parentSpanId,omitempty"`
 	Name          string            `json:"name"`
 	Attributes    map[string]string `json:"attributes"`
 	PolicyVersion string            `json:"policyVersion"`
@@ -71,7 +73,7 @@ func (c *ClickHouse) Persist(ctx context.Context, envelope ingest.Envelope) erro
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(row{TenantID: envelope.TenantID, EventKey: envelope.EventKey, EventID: envelope.Event.EventID, TraceID: envelope.Event.TraceID, SpanID: envelope.Event.SpanID, Name: envelope.Event.Name, AttributesJSON: string(attributes), PolicyVersion: envelope.Policy.PolicyVersion, RedactedPaths: envelope.Policy.RedactedPaths, IngestedAt: time.Now().UTC().Format("2006-01-02 15:04:05.000")})
+	payload, err := json.Marshal(row{TenantID: envelope.TenantID, EventKey: envelope.EventKey, EventID: envelope.Event.EventID, TraceID: envelope.Event.TraceID, SpanID: envelope.Event.SpanID, ParentSpanID: envelope.Event.ParentSpanID, Name: envelope.Event.Name, AttributesJSON: string(attributes), PolicyVersion: envelope.Policy.PolicyVersion, RedactedPaths: envelope.Policy.RedactedPaths, IngestedAt: time.Now().UTC().Format("2006-01-02 15:04:05.000")})
 	if err != nil {
 		return err
 	}
@@ -115,7 +117,7 @@ func (c *ClickHouse) QueryTrace(ctx context.Context, tenantID, traceID string) (
 		return nil, err
 	}
 	values := endpoint.Query()
-	values.Set("query", "SELECT event_key,event_id,trace_id,span_id,name,attributes_json,policy_version,redacted_paths,toString(ingested_at) AS ingested_at FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND trace_id = {trace:String} ORDER BY ingested_at ASC FORMAT JSONEachRow")
+	values.Set("query", "SELECT event_key,event_id,trace_id,span_id,parent_span_id,name,attributes_json,policy_version,redacted_paths,toString(ingested_at) AS ingested_at FROM telemetry.spans FINAL WHERE tenant_id = {tenant:String} AND trace_id = {trace:String} ORDER BY ingested_at ASC FORMAT JSONEachRow")
 	values.Set("param_tenant", tenantID)
 	values.Set("param_trace", traceID)
 	endpoint.RawQuery = values.Encode()
@@ -144,7 +146,7 @@ func (c *ClickHouse) QueryTrace(ctx context.Context, tenantID, traceID string) (
 		if err := json.Unmarshal([]byte(stored.AttributesJSON), &attributes); err != nil {
 			return nil, err
 		}
-		spans = append(spans, Span{EventKey: stored.EventKey, EventID: stored.EventID, TraceID: stored.TraceID, SpanID: stored.SpanID, Name: stored.Name, Attributes: attributes, PolicyVersion: stored.PolicyVersion, RedactedPaths: stored.RedactedPaths, IngestedAt: stored.IngestedAt})
+		spans = append(spans, Span{EventKey: stored.EventKey, EventID: stored.EventID, TraceID: stored.TraceID, SpanID: stored.SpanID, ParentSpanID: stored.ParentSpanID, Name: stored.Name, Attributes: attributes, PolicyVersion: stored.PolicyVersion, RedactedPaths: stored.RedactedPaths, IngestedAt: stored.IngestedAt})
 	}
 	return spans, nil
 }

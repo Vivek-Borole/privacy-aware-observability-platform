@@ -38,3 +38,5 @@ It returns a synthetic trace ID. Query that ID with the console using the local
 demo key `synthetic-compose-key-not-for-production`. The trace contains the
 TypeScript gateway, Go downstream service, and asynchronous worker. Its seeded
 email is intentionally redacted before Redpanda and ClickHouse persistence.
+The downstream and worker spans retain only their technical parent span IDs, so
+the trace timeline can show causal ordering without storing request content.

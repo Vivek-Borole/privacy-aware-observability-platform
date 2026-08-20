@@ -23,11 +23,12 @@ const (
 )
 
 type Event struct {
-	EventID    string            `json:"eventId"`
-	TraceID    string            `json:"traceId"`
-	SpanID     string            `json:"spanId"`
-	Name       string            `json:"name"`
-	Attributes map[string]string `json:"attributes"`
+	EventID      string            `json:"eventId"`
+	TraceID      string            `json:"traceId"`
+	SpanID       string            `json:"spanId"`
+	ParentSpanID string            `json:"parentSpanId,omitempty"`
+	Name         string            `json:"name"`
+	Attributes   map[string]string `json:"attributes"`
 }
 
 type Envelope struct {

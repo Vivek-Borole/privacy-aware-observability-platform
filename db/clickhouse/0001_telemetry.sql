@@ -6,6 +6,7 @@ create table if not exists telemetry.spans (
   event_id String,
   trace_id String,
   span_id String,
+  parent_span_id String,
   name String,
   attributes_json String,
   policy_version String,

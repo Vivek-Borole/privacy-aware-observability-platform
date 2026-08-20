@@ -44,6 +44,7 @@ done
 [[ "$demo_result" == *'synthetic-typescript-gateway'* ]]
 [[ "$demo_result" == *'synthetic-go-downstream'* ]]
 [[ "$demo_result" == *'synthetic-async-worker'* ]]
+[[ "$demo_result" == *'"parentSpanId"'* ]]
 [[ "$demo_result" == *'[REDACTED_EMAIL]'* ]]
 if [[ "$demo_result" == *'synthetic.user@example.test'* ]]; then
   echo 'synthetic demo PII appeared in query output' >&2

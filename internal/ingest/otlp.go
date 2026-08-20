@@ -27,10 +27,11 @@ type otlpScopeSpan struct {
 	Spans []otlpSpan `json:"spans"`
 }
 type otlpSpan struct {
-	TraceID    string          `json:"traceId"`
-	SpanID     string          `json:"spanId"`
-	Name       string          `json:"name"`
-	Attributes []otlpAttribute `json:"attributes"`
+	TraceID      string          `json:"traceId"`
+	SpanID       string          `json:"spanId"`
+	ParentSpanID string          `json:"parentSpanId"`
+	Name         string          `json:"name"`
+	Attributes   []otlpAttribute `json:"attributes"`
 }
 type otlpAttribute struct {
 	Key   string    `json:"key"`
@@ -67,7 +68,7 @@ func (g Gateway) acceptOTLPJSON(ctx context.Context, tenant string, body io.Read
 					attributes[key] = value
 				}
 				attributes["telemetry.source"] = "otlp_http_json"
-				event := Event{EventID: span.TraceID + ":" + span.SpanID, TraceID: span.TraceID, SpanID: span.SpanID, Name: span.Name, Attributes: attributes}
+				event := Event{EventID: span.TraceID + ":" + span.SpanID, TraceID: span.TraceID, SpanID: span.SpanID, ParentSpanID: span.ParentSpanID, Name: span.Name, Attributes: attributes}
 				if count > maxSpans || !valid(event) {
 					return ErrInvalidOTLP
 				}

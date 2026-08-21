@@ -1,1 +1,37 @@
-{"annotations":{"list":[]},"editable":false,"panels":[{"type":"timeseries","title":"Gateway request rate","targets":[{"expr":"sum(rate(paop_http_requests_total{service=\"gateway\"}[1m]))","refId":"A"}]},{"type":"timeseries","title":"Query request rate","targets":[{"expr":"sum(rate(paop_http_requests_total{service=\"query\"}[1m]))","refId":"A"}]},{"type":"timeseries","title":"HTTP 5xx rate","targets":[{"expr":"sum(rate(paop_http_requests_total{code=~\"5..\"}[1m]))","refId":"A"}]}],"schemaVersion":41,"title":"PAOP local API health","uid":"paop-local-api-health","version":1}
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [{ "expr": "sum(rate(paop_http_requests_total{service=\"gateway\"}[1m]))", "refId": "A" }],
+      "title": "Gateway request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "targets": [{ "expr": "sum(rate(paop_http_requests_total{service=\"query\"}[1m]))", "refId": "A" }],
+      "title": "Query request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "targets": [{ "expr": "sum(rate(paop_http_requests_total{code=~\"5..\"}[1m]))", "refId": "A" }],
+      "title": "HTTP 5xx rate",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 41,
+  "title": "PAOP local API health",
+  "uid": "paop-local-api-health",
+  "version": 1
+}

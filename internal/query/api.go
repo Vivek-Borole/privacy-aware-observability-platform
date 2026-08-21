@@ -151,5 +151,11 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "query unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	// The v1 console contract always returns an array. A nil slice marshals as
+	// JSON null, which is ambiguous to API clients and breaks safe empty-state
+	// rendering in the investigation console.
+	if spans == nil {
+		spans = []telemetry.Span{}
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"traceId": trace, "spans": spans})
 }

@@ -137,7 +137,7 @@ func (c *ClickHouse) QueryTrace(ctx context.Context, tenantID, traceID string) (
 		return nil, fmt.Errorf("clickhouse status class %d", response.StatusCode/100)
 	}
 	decoder := json.NewDecoder(response.Body)
-	var spans []Span
+	spans := make([]Span, 0)
 	for {
 		var stored row
 		if err := decoder.Decode(&stored); err == io.EOF {

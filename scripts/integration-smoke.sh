@@ -11,13 +11,20 @@ api_key='synthetic-integration-key-not-for-production'
 other_api_key='synthetic-other-tenant-key-not-for-production'
 postgres_url='postgres://paop:paop-local-only@127.0.0.1:5433/paop?sslmode=disable'
 gateway_url='http://127.0.0.1:18080/v1/traces'
-query_url='http://127.0.0.1:18081/v1/traces/smoke-trace-001'
+smoke_trace="smoke-trace-$(date +%s%N)"
+query_url="http://127.0.0.1:18081/v1/traces/$smoke_trace"
 metrics_url='http://127.0.0.1:18081/v1/metrics'
 sampling_url='http://127.0.0.1:18081/v1/sampling'
 payload='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}},{"key":"authorization","value":{"stringValue":"Bearer smoke-secret-must-not-persist"}}]},"scopeSpans":[{"spans":[{"traceId":"smoke-trace-001","spanId":"smoke-span-001","name":"synthetic.checkout","attributes":[{"key":"customer.email","value":{"stringValue":"smoke.user@example.test"}},{"key":"http.status_code","value":{"intValue":"200"}}]}]}]}]}'
 log_payload='{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"synthetic-gateway"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"123456","traceId":"smoke-trace-001","spanId":"smoke-span-001","severityText":"ERROR","body":{"stringValue":"smoke.user@example.test customer-77"},"attributes":[{"key":"cookie","value":{"stringValue":"session=smoke-secret-must-not-persist"}}]}]}]}]}'
+payload="${payload//smoke-trace-001/$smoke_trace}"
+log_payload="${log_payload//smoke-trace-001/$smoke_trace}"
 
-"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate persist gateway query prometheus grafana synthetic-worker synthetic-downstream synthetic-api
+compose_up=("${compose[@]}" up -d)
+if [[ "${PAOP_SKIP_BUILD:-0}" != '1' ]]; then
+  compose_up+=(--build)
+fi
+"${compose_up[@]}" postgres redpanda clickhouse migrate topic-init clickhouse-migrate persist gateway query prometheus grafana synthetic-worker synthetic-downstream synthetic-api
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-smoke' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-other' PAOP_API_KEY="$other_api_key" go run ./cmd/bootstrap >/dev/null
 
@@ -57,17 +64,17 @@ fi
 
 for _ in {1..30}; do
   sampling=$(curl --silent --show-error "$sampling_url" --header "x-paop-api-key: $api_key" || true)
-  if [[ "$sampling" == *'"traceId":"smoke-trace-001"'* ]]; then break; fi
+  if [[ "$sampling" == *"\"traceId\":\"$smoke_trace\""* ]]; then break; fi
   sleep 1
 done
-[[ "$sampling" == *'"traceId":"smoke-trace-001"'* ]]
+[[ "$sampling" == *"\"traceId\":\"$smoke_trace\""* ]]
 [[ "$sampling" == *'"reason":"retained_healthy_sample"'* ]]
 if [[ "$sampling" == *'smoke-secret-must-not-persist'* || "$sampling" == *'smoke.user@example.test'* ]]; then
   echo 'sampling decision leaked telemetry content' >&2
   exit 1
 fi
 other_sampling=$(curl --silent --show-error "$sampling_url" --header "x-paop-api-key: $other_api_key")
-if [[ "$other_sampling" == *'smoke-trace-001'* ]]; then
+if [[ "$other_sampling" == *"$smoke_trace"* ]]; then
   echo 'cross-tenant sampling evidence was visible' >&2
   exit 1
 fi

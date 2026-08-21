@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 )
 
 type storeStub struct{ tenant, trace string }
+type emptyStoreStub struct{}
 type deletionStub struct {
 	tenant, action                string
 	deleted, tailDeleted, audited bool
@@ -47,6 +49,15 @@ func (s *storeStub) QueryTrace(_ context.Context, tenant, trace string) ([]telem
 	s.tenant, s.trace = tenant, trace
 	return []telemetry.Span{{TraceID: trace, Name: "safe-span"}}, nil
 }
+func (emptyStoreStub) QueryTrace(context.Context, string, string) ([]telemetry.Span, error) {
+	return nil, nil
+}
+func (emptyStoreStub) QueryUsage(context.Context, string) (telemetry.UsageMetrics, error) {
+	return telemetry.UsageMetrics{}, nil
+}
+func (emptyStoreStub) QueryDependencies(context.Context, string) ([]telemetry.Dependency, error) {
+	return nil, nil
+}
 func (s *storeStub) QueryUsage(_ context.Context, tenant string) (telemetry.UsageMetrics, error) {
 	s.tenant = tenant
 	return telemetry.UsageMetrics{WindowHours: 24, SpanCount: 12, TraceCount: 3, LogCount: 4, ErrorCount: 1}, nil
@@ -65,6 +76,27 @@ func TestAPIUsesAuthenticatedTenantNotClientInput(t *testing.T) {
 	api.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || store.tenant != "tenant-a" || store.trace != "trace-1" {
 		t.Fatalf("status=%d tenant=%q trace=%q", response.Code, store.tenant, store.trace)
+	}
+}
+
+func TestTraceResponseUsesEmptyArrayWhenStoreHasNoMatches(t *testing.T) {
+	api := API{Authenticator: ingest.NewAPIKeyAuthenticator(map[string]string{"tenant-a": "key-a"}), Store: emptyStoreStub{}}
+	request := httptest.NewRequest(http.MethodGet, "/v1/traces/empty-trace", nil)
+	request.Header.Set("X-PAOP-API-Key", "key-a")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d", response.Code)
+	}
+	var payload struct {
+		TraceID string           `json:"traceId"`
+		Spans   []telemetry.Span `json:"spans"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.TraceID != "empty-trace" || payload.Spans == nil || len(payload.Spans) != 0 {
+		t.Fatalf("unsafe empty response: %#v", payload)
 	}
 }
 

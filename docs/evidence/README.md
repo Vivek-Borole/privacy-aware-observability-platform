@@ -1,10 +1,11 @@
 # Local benchmark evidence
 
-This directory contains no measured results in source control. Run
-`bash scripts/run-benchmark.sh` on the documented M3 Pro / 18 GB machine to
-create ignored raw JSON and environment artifacts locally. Review the raw
+This directory intentionally excludes raw seeded payloads and local API keys.
+Run `bash scripts/run-benchmark.sh` on the documented M3 Pro / 18 GB machine
+to create ignored raw JSON and environment artifacts locally. Review the raw
 counts, failure conditions, machine data, Compose resource state, and sampled
-trace lookup report before creating a signed release report.
+trace lookup report before creating a signed release report. The checked-in
+release summary contains only measured aggregates and commands.
 
 It also receives the synthetic-only screenshots and recorded local demo listed
 in [the demo script](../demo-script.md). Do not add those artifacts until the

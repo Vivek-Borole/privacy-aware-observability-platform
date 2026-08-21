@@ -4,14 +4,20 @@ set -euo pipefail
 
 if docker compose version >/dev/null 2>&1; then compose=(docker compose); else compose=(docker-compose); fi
 
-api_key='recovery-integration-key-not-for-production'
 postgres_url='postgres://paop:paop-local-only@127.0.0.1:5433/paop?sslmode=disable'
 gateway_url='http://127.0.0.1:18080/v1/traces'
-query_url='http://127.0.0.1:18081/v1/traces/recovery-trace-001'
+run_suffix="$(date +%s%N)"
+tenant_id="synthetic-recovery-$run_suffix"
+trace_id="recovery-trace-$run_suffix"
+api_key="recovery-integration-key-$run_suffix-not-for-production"
+query_url="http://127.0.0.1:18081/v1/traces/$trace_id"
 payload='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"recovery-synthetic"}},{"key":"authorization","value":{"stringValue":"Bearer recovery-secret-must-not-persist"}}]},"scopeSpans":[{"spans":[{"traceId":"recovery-trace-001","spanId":"recovery-span-001","name":"recovery.checkout","attributes":[{"key":"customer.email","value":{"stringValue":"recovery.user@example.test"}},{"key":"http.status_code","value":{"intValue":"200"}}]}]}]}]}'
+payload="${payload//recovery-trace-001/$trace_id}"
 
-"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate tailer persist gateway query
-PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-recovery' PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
+compose_up=("${compose[@]}" up -d)
+if [[ "${PAOP_SKIP_BUILD:-0}" != '1' ]]; then compose_up+=(--build); fi
+"${compose_up[@]}" postgres redpanda clickhouse migrate topic-init clickhouse-migrate tailer persist gateway query
+PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID="$tenant_id" PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 
 # Stop the tailer before acceptance. The successful gateway response must mean
 # the sanitized envelope is durable in PostgreSQL, not merely resident in the
@@ -19,7 +25,7 @@ PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID='synthetic-recovery' PAOP_API_K
 "${compose[@]}" stop tailer
 status=$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 1 --output /dev/null --write-out '%{http_code}' --request POST "$gateway_url" --header 'content-type: application/json' --header "x-paop-api-key: $api_key" --data "$payload")
 test "$status" = '202'
-staged=$("${compose[@]}" exec -T postgres psql -U paop -d paop -At -c "select count(*) from tail_buffers where tenant_id = 'synthetic-recovery' and trace_id = 'recovery-trace-001'")
+staged=$("${compose[@]}" exec -T postgres psql -U paop -d paop -At -c "select count(*) from tail_buffers where tenant_id = '$tenant_id' and trace_id = '$trace_id'")
 test "$staged" = '1'
 
 # Recover the tailer while both the broker and storage are unavailable. The

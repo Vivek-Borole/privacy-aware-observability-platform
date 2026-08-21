@@ -5,10 +5,14 @@ set -euo pipefail
 if docker compose version >/dev/null 2>&1; then compose=(docker compose); else compose=(docker-compose); fi
 
 postgres_url='postgres://paop:paop-local-only@127.0.0.1:5433/paop?sslmode=disable'
-tenant_id='synthetic-pressure'
+run_suffix="$(date +%s%N)"
+tenant_id="synthetic-pressure-$run_suffix"
+api_key="pressure-key-$run_suffix-not-for-production"
 
-"${compose[@]}" up -d --build postgres redpanda clickhouse migrate topic-init clickhouse-migrate tailer persist gateway query
-PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID="$tenant_id" PAOP_API_KEY='pressure-key-not-for-production' go run ./cmd/bootstrap >/dev/null
+compose_up=("${compose[@]}" up -d)
+if [[ "${PAOP_SKIP_BUILD:-0}" != '1' ]]; then compose_up+=(--build); fi
+"${compose_up[@]}" postgres redpanda clickhouse migrate topic-init clickhouse-migrate tailer persist gateway query
+PAOP_POSTGRES_URL="$postgres_url" PAOP_TENANT_ID="$tenant_id" PAOP_API_KEY="$api_key" go run ./cmd/bootstrap >/dev/null
 
 # The tailer must not consume staged buffers while this test drives the fixed
 # v1 pressure bound of 1,000 active traces.
@@ -23,7 +27,7 @@ test "$buffers" = '1000'
 test "$evicted" = '1'
 
 metadata_dump=$("${compose[@]}" exec -T postgres pg_dump -U paop paop)
-if [[ "$metadata_dump" == *'pressure-key-not-for-production'* ]]; then
+if [[ "$metadata_dump" == *"$api_key"* ]]; then
   echo 'raw pressure-test API key appeared in PostgreSQL' >&2
   exit 1
 fi

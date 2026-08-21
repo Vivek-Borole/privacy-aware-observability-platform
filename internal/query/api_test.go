@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Vivek-Borole/privacy-aware-observability-platform/internal/ingest"
@@ -20,6 +21,8 @@ type deletionStub struct {
 }
 type auditReaderStub struct{ tenant string }
 type samplingReaderStub struct{ tenant string }
+type emptyAuditReaderStub struct{}
+type emptySamplingReaderStub struct{}
 
 func (s *auditReaderStub) AuditEvents(_ context.Context, tenant string, _ int) ([]metadata.AuditEvent, error) {
 	s.tenant = tenant
@@ -28,6 +31,12 @@ func (s *auditReaderStub) AuditEvents(_ context.Context, tenant string, _ int) (
 func (s *samplingReaderStub) TailDecisions(_ context.Context, tenant string, _ int) ([]metadata.TailDecision, error) {
 	s.tenant = tenant
 	return []metadata.TailDecision{{TraceID: "safe-trace", Reason: "retained_error", Retained: true, SpanCount: 2}}, nil
+}
+func (emptyAuditReaderStub) AuditEvents(context.Context, string, int) ([]metadata.AuditEvent, error) {
+	return nil, nil
+}
+func (emptySamplingReaderStub) TailDecisions(context.Context, string, int) ([]metadata.TailDecision, error) {
+	return nil, nil
 }
 
 func (s *deletionStub) DeleteTenantTelemetry(_ context.Context, tenant string) error {
@@ -97,6 +106,29 @@ func TestTraceResponseUsesEmptyArrayWhenStoreHasNoMatches(t *testing.T) {
 	}
 	if payload.TraceID != "empty-trace" || payload.Spans == nil || len(payload.Spans) != 0 {
 		t.Fatalf("unsafe empty response: %#v", payload)
+	}
+}
+
+func TestCollectionResponsesUseEmptyArraysWhenStoresHaveNoMatches(t *testing.T) {
+	api := API{
+		Authenticator: ingest.NewAPIKeyAuthenticator(map[string]string{"tenant-a": "key-a"}),
+		Store:         emptyStoreStub{},
+		AuditReader:   emptyAuditReaderStub{},
+		Sampling:      emptySamplingReaderStub{},
+	}
+	for _, path := range []string{"/v1/dependencies", "/v1/audit", "/v1/sampling"} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.Header.Set("X-PAOP-API-Key", "key-a")
+			response := httptest.NewRecorder()
+			api.ServeHTTP(response, request)
+			if response.Code != http.StatusOK || string(response.Body.Bytes()) == "" || string(response.Body.Bytes()) == "null\n" {
+				t.Fatalf("unsafe response: status=%d body=%s", response.Code, response.Body.String())
+			}
+			if strings.Contains(response.Body.String(), "null") || !strings.Contains(response.Body.String(), "[]") {
+				t.Fatalf("expected collection to be an empty array, got %s", response.Body.String())
+			}
+		})
 	}
 }
 

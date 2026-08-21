@@ -108,6 +108,9 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "query unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		if dependencies == nil {
+			dependencies = make([]telemetry.Dependency, 0)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"windowHours": 24, "dependencies": dependencies})
 		return
 	}
@@ -121,6 +124,9 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		if events == nil {
+			events = make([]metadata.AuditEvent, 0)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"events": events})
 		return
 	}
@@ -133,6 +139,9 @@ func (a API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.Error(w, "sampling unavailable", http.StatusServiceUnavailable)
 			return
+		}
+		if decisions == nil {
+			decisions = make([]metadata.TailDecision, 0)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"decisions": decisions})
 		return

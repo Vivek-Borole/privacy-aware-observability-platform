@@ -180,7 +180,7 @@ func (s *Store) AuditEvents(ctx context.Context, tenantID string, limit int) ([]
 		return nil, err
 	}
 	defer rows.Close()
-	var events []AuditEvent
+	events := make([]AuditEvent, 0)
 	for rows.Next() {
 		var event AuditEvent
 		var metadata []byte

@@ -382,7 +382,7 @@ func (s *Store) TailDecisions(ctx context.Context, tenantID string, limit int) (
 		return nil, err
 	}
 	defer rows.Close()
-	var decisions []TailDecision
+	decisions := make([]TailDecision, 0)
 	for rows.Next() {
 		var decision TailDecision
 		if err := rows.Scan(&decision.TraceID, &decision.Reason, &decision.Retained, &decision.SpanCount, &decision.CreatedAt); err != nil {

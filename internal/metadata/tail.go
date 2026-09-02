@@ -13,7 +13,8 @@ import (
 
 const (
 	defaultTailMaxTraces = 1000
-	defaultTailMaxSpans  = 100
+	defaultTailMaxSpans  = 200
+	tailLockShards       = 10
 )
 
 var (
@@ -76,9 +77,6 @@ func (s *Store) StageBatch(ctx context.Context, envelopes []ingest.Envelope) err
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `select pg_advisory_xact_lock(hashtext($1))`, tenantID); err != nil {
-		return err
-	}
 	byTrace := make(map[string][]ingest.Envelope)
 	for _, envelope := range envelopes {
 		traceID := tailTraceID(envelope)
@@ -93,16 +91,19 @@ func (s *Store) StageBatch(ctx context.Context, envelopes []ingest.Envelope) err
 }
 
 func (s *Store) stageTraceTx(ctx context.Context, tx *sql.Tx, tenantID, traceID string, envelopes []ingest.Envelope) error {
+	if _, err := tx.ExecContext(ctx, `select pg_advisory_xact_lock(hashtext($1), mod(abs(hashtext($2)::bigint), $3)::integer)`, tenantID, traceID, tailLockShards); err != nil {
+		return err
+	}
 	var spanCount int
 	var decidedAt sql.NullTime
 	err := tx.QueryRowContext(ctx, `select span_count, decided_at from tail_traces where tenant_id = $1 and trace_id = $2 for update`, tenantID, traceID).Scan(&spanCount, &decidedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		var activeTraces int
-		if err := tx.QueryRowContext(ctx, `select count(*) from tail_traces where tenant_id = $1 and decided_at is null`, tenantID).Scan(&activeTraces); err != nil {
+		if err := tx.QueryRowContext(ctx, `select count(*) from tail_traces where tenant_id = $1 and decided_at is null and mod(abs(hashtext(trace_id)::bigint), $3) = mod(abs(hashtext($2)::bigint), $3)`, tenantID, traceID, tailLockShards).Scan(&activeTraces); err != nil {
 			return err
 		}
-		if activeTraces >= defaultTailMaxTraces {
-			if err := s.evictOldestTailTrace(ctx, tx, tenantID, "evicted_pressure"); err != nil {
+		if activeTraces >= defaultTailMaxTraces/tailLockShards {
+			if err := s.evictOldestTailTrace(ctx, tx, tenantID, traceID, "evicted_pressure"); err != nil {
 				return err
 			}
 		}
@@ -113,6 +114,21 @@ func (s *Store) stageTraceTx(ctx context.Context, tx *sql.Tx, tenantID, traceID 
 	} else if err != nil {
 		return err
 	} else if decidedAt.Valid {
+		eventKeys := make([]string, 0, len(envelopes))
+		unique := make(map[string]struct{}, len(envelopes))
+		for _, envelope := range envelopes {
+			if _, exists := unique[envelope.EventKey]; !exists {
+				unique[envelope.EventKey] = struct{}{}
+				eventKeys = append(eventKeys, envelope.EventKey)
+			}
+		}
+		var known int
+		if err := tx.QueryRowContext(ctx, `select count(*) from tail_event_keys where tenant_id = $1 and trace_id = $2 and event_key = any($3::text[])`, tenantID, traceID, eventKeys).Scan(&known); err != nil {
+			return err
+		}
+		if known == len(eventKeys) {
+			return nil
+		}
 		return ErrTailTraceClosed
 	}
 
@@ -185,9 +201,9 @@ func tailTraceID(envelope ingest.Envelope) string {
 	return "unlinked-log:" + envelope.Event.EventID
 }
 
-func (s *Store) evictOldestTailTrace(ctx context.Context, tx *sql.Tx, tenantID, reason string) error {
+func (s *Store) evictOldestTailTrace(ctx context.Context, tx *sql.Tx, tenantID, shardTraceID, reason string) error {
 	var traceID string
-	err := tx.QueryRowContext(ctx, `select trace_id from tail_traces where tenant_id = $1 and decided_at is null order by first_seen asc for update skip locked limit 1`, tenantID).Scan(&traceID)
+	err := tx.QueryRowContext(ctx, `select trace_id from tail_traces where tenant_id = $1 and decided_at is null and mod(abs(hashtext(trace_id)::bigint), $3) = mod(abs(hashtext($2)::bigint), $3) order by first_seen asc for update skip locked limit 1`, tenantID, shardTraceID, tailLockShards).Scan(&traceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrTailBufferFull
 	}

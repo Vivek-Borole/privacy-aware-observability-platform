@@ -16,10 +16,12 @@ import (
 )
 
 const (
-	maxBodyBytes   = 1 << 20
-	maxAttributes  = 64
-	maxStringBytes = 4 << 10
-	maxSpans       = 100
+	CurrentEnvelopeVersion  = 2
+	PreviousEnvelopeVersion = 1
+	maxBodyBytes            = 1 << 20
+	maxAttributes           = 64
+	maxStringBytes          = 4 << 10
+	maxSpans                = 200
 )
 
 type Event struct {
@@ -33,10 +35,11 @@ type Event struct {
 }
 
 type Envelope struct {
-	TenantID string            `json:"tenantId"`
-	Event    Event             `json:"event"`
-	Policy   redaction.Receipt `json:"policy"`
-	EventKey string            `json:"eventKey"`
+	SchemaVersion int               `json:"schemaVersion"`
+	TenantID      string            `json:"tenantId"`
+	Event         Event             `json:"event"`
+	Policy        redaction.Receipt `json:"policy"`
+	EventKey      string            `json:"eventKey"`
 }
 
 type Publisher interface{ Publish(Envelope) error }
@@ -117,8 +120,14 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	defer body.Close()
 	if r.URL.Path == "/v1/traces" {
-		if err := g.acceptOTLPJSON(r.Context(), tenant, body); err != nil {
-			if errors.Is(err, ErrInvalidOTLP) {
+		var acceptErr error
+		if isProtobuf(r.Header.Get("Content-Type")) {
+			acceptErr = g.acceptOTLPTracesProtobuf(r.Context(), tenant, body)
+		} else {
+			acceptErr = g.acceptOTLPJSON(r.Context(), tenant, body)
+		}
+		if acceptErr != nil {
+			if errors.Is(acceptErr, ErrInvalidOTLP) {
 				http.Error(w, "invalid telemetry envelope", http.StatusBadRequest)
 			} else {
 				http.Error(w, "durable publish unavailable", http.StatusServiceUnavailable)
@@ -131,8 +140,14 @@ func (g Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/v1/logs" {
-		if err := g.acceptOTLPLogsJSON(r.Context(), tenant, body); err != nil {
-			if errors.Is(err, ErrInvalidOTLP) {
+		var acceptErr error
+		if isProtobuf(r.Header.Get("Content-Type")) {
+			acceptErr = g.acceptOTLPLogsProtobuf(r.Context(), tenant, body)
+		} else {
+			acceptErr = g.acceptOTLPLogsJSON(r.Context(), tenant, body)
+		}
+		if acceptErr != nil {
+			if errors.Is(acceptErr, ErrInvalidOTLP) {
 				http.Error(w, "invalid telemetry envelope", http.StatusBadRequest)
 			} else {
 				http.Error(w, "durable publish unavailable", http.StatusServiceUnavailable)
@@ -179,7 +194,7 @@ func (g Gateway) acceptEvents(ctx context.Context, tenant string, events []Event
 		}
 		attributes, receipt := redaction.Sanitize(event.Attributes, policyVersion, patterns)
 		event.Attributes = attributes
-		envelopes = append(envelopes, Envelope{TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID})
+		envelopes = append(envelopes, Envelope{SchemaVersion: CurrentEnvelopeVersion, TenantID: tenant, Event: event, Policy: receipt, EventKey: tenant + ":" + event.EventID})
 	}
 	if g.Stager != nil {
 		if batch, ok := g.Stager.(BatchStager); ok {

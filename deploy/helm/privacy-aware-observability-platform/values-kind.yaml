@@ -1,0 +1,21 @@
+localDependencies:
+  enabled: true
+networkPolicy:
+  enabled: false
+images:
+  gateway: {repository: paop/gateway, tag: dev, pullPolicy: Never}
+  query: {repository: paop/query, tag: dev, pullPolicy: Never}
+  tailer: {repository: paop/tailer, tag: dev, pullPolicy: Never}
+  persist: {repository: paop/persist, tag: dev, pullPolicy: Never}
+  migrate: {repository: paop/migrate, tag: dev, pullPolicy: Never}
+  clickhouseMigrate: {repository: paop/clickhouse-migrate, tag: dev, pullPolicy: Never}
+  bootstrap: {repository: paop/bootstrap, tag: dev, pullPolicy: Never}
+external:
+  postgresURLSecret: paop-runtime
+  clickhouseURLSecret: paop-runtime
+  kafkaBrokers: redpanda:9092
+synthetic:
+  tenantID: synthetic-kind
+  apiKeySecret: paop-runtime
+sampling:
+  healthyModulo: 1

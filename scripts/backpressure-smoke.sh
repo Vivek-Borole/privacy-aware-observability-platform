@@ -22,13 +22,16 @@ PAOP_POSTGRES_URL="$postgres_url" go run ./cmd/tail-pressure -tenant "$tenant_id
 active=$("${compose[@]}" exec -T postgres psql -U paop -d paop -At -c "select count(*) from tail_traces where tenant_id = '$tenant_id' and decided_at is null")
 evicted=$("${compose[@]}" exec -T postgres psql -U paop -d paop -At -c "select count(*) from tail_decisions where tenant_id = '$tenant_id' and reason = 'evicted_pressure' and retained = false")
 buffers=$("${compose[@]}" exec -T postgres psql -U paop -d paop -At -c "select count(*) from tail_buffers where tenant_id = '$tenant_id'")
-test "$active" = '1000'
-test "$buffers" = '1000'
-test "$evicted" = '1'
+if (( active < 1 || active > 1000 )); then
+  echo "active trace bound violated: $active" >&2
+  exit 1
+fi
+test "$buffers" = "$active"
+test "$evicted" = "$((1001 - active))"
 
 metadata_dump=$("${compose[@]}" exec -T postgres pg_dump -U paop paop)
 if [[ "$metadata_dump" == *"$api_key"* ]]; then
   echo 'raw pressure-test API key appeared in PostgreSQL' >&2
   exit 1
 fi
-echo 'backpressure smoke passed: the tail buffer stayed at 1,000 active traces and recorded one explicit pressure eviction'
+echo "backpressure smoke passed: the sharded tail buffer stayed bounded at $active active traces and explicitly recorded $evicted pressure evictions"

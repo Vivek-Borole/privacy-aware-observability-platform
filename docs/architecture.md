@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  A["Synthetic TypeScript gateway"] --> G["Go ingestion gateway"]
+  A["Synthetic services / OTel Collector"] -->|"OTLP gRPC or HTTP protobuf"| G["Go ingestion gateway"]
   B["Go downstream service"] --> G
   C["Async worker"] --> G
   G -->|"authenticate + validate"| R["redaction policy"]
@@ -19,8 +19,9 @@ flowchart LR
   O --> M["Prometheus + Grafana"]
 ```
 
-The gateway accepts bounded OTLP/HTTP JSON traces and logs. It acknowledges an
-request only after every span/log record has been validated and its sanitized
+The gateway accepts OTLP/gRPC, OTLP/HTTP protobuf, and bounded legacy JSON
+traces and logs. Every transport becomes the same versioned internal envelope.
+It acknowledges a request only after every span/log record has been validated and its sanitized
 envelopes are durably written as one PostgreSQL transaction to the tail buffer.
 Redaction happens before that boundary. The tailer retains error
 and slow traces, deterministically samples healthy traces, and records every
@@ -33,10 +34,17 @@ rather than silent success.
 
 Raw telemetry is untrusted input and never reaches broker, storage, or logs before validation and redaction. PostgreSQL metadata and ClickHouse queries always include tenant scope.
 
-The OpenTelemetry Collector is intentionally limited to internal HTTP outcome
-metrics: it scrapes the gateway and query API and makes those bounded values
-available to Prometheus/Grafana. It is not a tenant-telemetry ingest path; raw
-telemetry enters only the authenticated redaction-first gateway.
+The OpenTelemetry Collector interoperability fixture forwards synthetic OTLP
+to the authenticated redaction-first gateway. It also scrapes bounded HTTP
+outcome metrics from gateway and query services for Prometheus/Grafana. Metrics
+ingestion is deliberately outside v0.2.0; `/v1/metrics` remains a derived query
+API, not an OTLP metrics receiver.
+
+The Helm local-kind profile runs two replicas each of gateway, query, tailer,
+and persistence worker. Stateless replicas roll normally; durable PostgreSQL
+leases, Redpanda consumer groups, deterministic identities, and the delivery
+ledger coordinate workers. Local stateful dependencies remain single-node, so
+this evidence is single-region development evidence rather than HA production proof.
 
 ## Durable tail decision state
 

@@ -29,7 +29,8 @@ Keep the recording under three minutes and narrate only verified behavior.
 4. Load tail-sampling decisions and the safe audit timeline. State that a
    pressure eviction has explicit evidence rather than a silent drop.
 5. Show the Grafana dashboard at `http://localhost:13000`, explaining that the
-   OpenTelemetry Collector exposes only bounded internal HTTP outcome metrics.
+   OpenTelemetry Collector proves synthetic OTLP interoperability and also
+   exposes only bounded internal HTTP outcome metrics to Prometheus.
 6. Show, but do not click, the deletion control. Explain that exact typed
    confirmation deletes PostgreSQL tail metadata and only *requests* an
    asynchronous ClickHouse mutation.

@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"time"
@@ -18,6 +19,9 @@ type Ledger interface {
 }
 type Sink interface {
 	Persist(context.Context, ingest.Envelope) error
+}
+type DeadLetterRecorder interface {
+	RecordDeadLetter(context.Context, string, string, int, string, string, int, int64) error
 }
 
 type Consumer struct {
@@ -42,7 +46,24 @@ func (c *Consumer) Run(ctx context.Context) error {
 		}
 		var envelope ingest.Envelope
 		if err := json.Unmarshal(message.Value, &envelope); err != nil || envelope.EventKey == "" || envelope.TenantID == "" {
-			return errors.New("sanitized broker envelope invalid")
+			if err := c.deadLetter(ctx, message, envelope, "malformed_envelope"); err != nil {
+				return err
+			}
+			if err := c.reader.CommitMessages(ctx, message); err != nil {
+				return err
+			}
+			continue
+		}
+		normalizedVersion, supported := supportedEnvelopeVersion(envelope.SchemaVersion)
+		envelope.SchemaVersion = normalizedVersion
+		if !supported {
+			if err := c.deadLetter(ctx, message, envelope, "unknown_schema_version"); err != nil {
+				return err
+			}
+			if err := c.reader.CommitMessages(ctx, message); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := c.Process(ctx, envelope); err != nil {
 			return err
@@ -51,6 +72,32 @@ func (c *Consumer) Run(ctx context.Context) error {
 			return err
 		}
 	}
+}
+
+func supportedEnvelopeVersion(version int) (int, bool) {
+	if version == 0 {
+		version = ingest.PreviousEnvelopeVersion
+	}
+	return version, version == ingest.PreviousEnvelopeVersion || version == ingest.CurrentEnvelopeVersion
+}
+
+func (c *Consumer) deadLetter(ctx context.Context, message kafka.Message, envelope ingest.Envelope, reason string) error {
+	recorder, ok := c.ledger.(DeadLetterRecorder)
+	if !ok {
+		return errors.New("dead-letter recorder unavailable")
+	}
+	digest := sha256.Sum256(message.Value)
+	return recorder.RecordDeadLetter(ctx, envelope.TenantID, envelope.EventKey, envelope.SchemaVersion, reason, fmtHex(digest[:]), message.Partition, message.Offset)
+}
+
+func fmtHex(value []byte) string {
+	const alphabet = "0123456789abcdef"
+	result := make([]byte, len(value)*2)
+	for index, byteValue := range value {
+		result[index*2] = alphabet[byteValue>>4]
+		result[index*2+1] = alphabet[byteValue&0x0f]
+	}
+	return string(result)
 }
 
 func (c *Consumer) Process(ctx context.Context, envelope ingest.Envelope) error {

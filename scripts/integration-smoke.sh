@@ -43,6 +43,21 @@ post_expected "$gateway_url" '400' '{"resourceSpans":[]}'
 post_expected "$gateway_url" '202' "$payload"
 post_expected 'http://127.0.0.1:18080/v1/logs' '202' "$log_payload"
 
+# Prove interoperability with an official OpenTelemetry Collector using native
+# OTLP/HTTP protobuf into the collector and OTLP/gRPC into the PAOP gateway.
+for _ in {1..30}; do
+  if go run ./cmd/synthetic-emitter -endpoint http://127.0.0.1:24318/v1/traces -transport protobuf -api-key collector-local-placeholder -rate 1 -workers 1 -batch-size 1 -duration 1s -trace-sample-limit 1 -output /tmp/paop-collector-smoke.json >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+collector_trace=$(node -e 'const r=require("/tmp/paop-collector-smoke.json"); process.stdout.write(r.traceSamples[0] || "")')
+[[ -n "$collector_trace" ]]
+for _ in {1..30}; do
+  collector_result=$(curl --silent --show-error "http://127.0.0.1:18081/v1/traces/$collector_trace" --header 'x-paop-api-key: synthetic-compose-key-not-for-production' || true)
+  if [[ "$collector_result" == *'"telemetry.source":"otlp_grpc"'* ]]; then break; fi
+  sleep 1
+done
+[[ "$collector_result" == *'"telemetry.source":"otlp_grpc"'* ]]
+
 for _ in {1..30}; do
   result=$(curl --silent --show-error "$query_url" --header "x-paop-api-key: $api_key" || true)
   if [[ "$result" == *'synthetic.checkout'* ]]; then break; fi

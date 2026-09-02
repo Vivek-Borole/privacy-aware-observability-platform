@@ -5,33 +5,61 @@
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
       "id": 1,
-      "targets": [{ "expr": "sum(rate(paop_http_requests_total{service=\"gateway\"}[1m]))", "refId": "A" }],
-      "title": "Gateway request rate",
+      "targets": [{ "expr": "sum(rate(paop_http_requests_total{service=\"gateway\",route=\"ingest\",code=\"202\"}[5m]))", "refId": "A" }],
+      "title": "Accepted OTLP requests / second",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 0 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
       "id": 2,
-      "targets": [{ "expr": "sum(rate(paop_http_requests_total{service=\"query\"}[1m]))", "refId": "A" }],
-      "title": "Query request rate",
+      "targets": [{ "expr": "sum by (code) (rate(paop_http_requests_total{service=\"gateway\",route=\"ingest\",code!=\"202\"}[5m]))", "refId": "A" }],
+      "title": "Rejected OTLP requests / second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(paop_http_request_duration_seconds_bucket{service=\"gateway\",route=\"ingest\"}[5m])))", "refId": "A" }],
+      "title": "Ingest request p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "id": 4,
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(paop_http_request_duration_seconds_bucket{service=\"query\",route=\"trace\"}[5m])))", "refId": "A" }],
+      "title": "Trace lookup p95",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 0 },
-      "id": 3,
-      "targets": [{ "expr": "sum(rate(paop_http_requests_total{code=~\"5..\"}[1m]))", "refId": "A" }],
-      "title": "HTTP 5xx rate",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "id": 5,
+      "targets": [{ "expr": "sum by (service) (rate(paop_http_requests_total{code=~\"5..\"}[5m]))", "refId": "A" }],
+      "title": "Service 5xx rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "id": 6,
+      "targets": [{ "expr": "sum by (code) (increase(paop_http_requests_total{service=\"query\",route=\"deletion\"}[1h]))", "refId": "A" }],
+      "title": "Retention deletion outcomes (1h)",
       "type": "timeseries"
     }
   ],
   "schemaVersion": 41,
-  "title": "PAOP local API health",
+  "tags": ["paop", "v0.2", "synthetic-only"],
+  "title": "PAOP v0.2 local SLOs",
   "uid": "paop-local-api-health",
-  "version": 1
+  "version": 2
 }

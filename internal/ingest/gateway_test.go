@@ -9,11 +9,46 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	tracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type batchStagerStub struct {
 	stageCalls int
 	batches    [][]Envelope
+}
+
+func TestGatewayAcceptsNativeOTLPHTTPProtobufAndRedacts(t *testing.T) {
+	publisher := &MemoryPublisher{}
+	gateway := Gateway{Authenticator: NewAPIKeyAuthenticator(map[string]string{"tenant-a": "proto-key"}), Publisher: publisher, PolicyVersion: "tenant-v2"}
+	requestPayload := &tracev1.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
+		Resource:   &resourcev1.Resource{Attributes: []*commonv1.KeyValue{{Key: "service.name", Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: "native-client"}}}}},
+		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{TraceId: bytes.Repeat([]byte{1}, 16), SpanId: bytes.Repeat([]byte{2}, 8), Name: "GET /native", Attributes: []*commonv1.KeyValue{{Key: "authorization", Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: "Bearer seeded-protobuf-secret"}}}}}}}},
+	}}}
+	payload, err := proto.Marshal(requestPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/x-protobuf")
+	request.Header.Set("X-PAOP-API-Key", "proto-key")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || len(publisher.Envelopes) != 1 {
+		t.Fatalf("status=%d envelopes=%#v", response.Code, publisher.Envelopes)
+	}
+	envelope := publisher.Envelopes[0]
+	if envelope.SchemaVersion != CurrentEnvelopeVersion || envelope.Event.Attributes["telemetry.source"] != "otlp_http_protobuf" {
+		t.Fatalf("native OTLP metadata missing: %#v", envelope)
+	}
+	serialized, _ := json.Marshal(envelope)
+	if strings.Contains(string(serialized), "seeded-protobuf-secret") {
+		t.Fatalf("native OTLP leaked a seeded secret: %s", serialized)
+	}
 }
 
 type policyResolverStub struct {

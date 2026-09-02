@@ -1,0 +1,10 @@
+{{- range $name := list "gateway" "query" }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: paop-{{ $name }}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {{- include "paop.selector" (dict "name" $name "root" $) | nindent 6 }}
+---
+{{- end }}

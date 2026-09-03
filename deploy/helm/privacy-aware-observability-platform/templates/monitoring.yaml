@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: paop-slo-rules}
+data:
+  rules.yaml: |
+    groups:
+      - name: paop-v0.2
+        rules:
+          - record: paop:ingest_accept_rate5m
+            expr: sum(rate(paop_http_requests_total{service="gateway",code="202"}[5m]))
+          - alert: PAOPIngestionRejecting
+            expr: sum(rate(paop_http_requests_total{service="gateway",code!="202"}[5m])) > 0
+            for: 5m
+          - alert: PAOPQueryP95High
+            expr: histogram_quantile(0.95, sum by (le) (rate(paop_http_request_duration_seconds_bucket{service="query"}[5m]))) > 3
+            for: 10m
+          - alert: PAOPSchemaOrPayloadRejected
+            expr: increase(paop_http_requests_total{service="gateway",code="400"}[10m]) > 0
+            for: 1m

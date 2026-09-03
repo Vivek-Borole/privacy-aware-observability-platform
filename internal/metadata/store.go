@@ -142,6 +142,20 @@ func (s *Store) RecordLoss(ctx context.Context, eventKey, errorClass string) err
 	return err
 }
 
+// RecordDeadLetter stores only routing identity, version, reason, and a digest.
+// The rejected telemetry payload is deliberately never copied into PostgreSQL.
+func (s *Store) RecordDeadLetter(ctx context.Context, tenantID, eventKey string, schemaVersion int, reason, payloadSHA256 string, partition int, offset int64) error {
+	var nullableTenant any
+	if tenantID != "" {
+		nullableTenant = tenantID
+	}
+	_, err := s.db.ExecContext(ctx, `
+insert into telemetry_dead_letters(tenant_id, event_key, schema_version, reason, payload_sha256, broker_partition, broker_offset)
+values ($1, nullif($2, ''), $3, $4, $5, $6, $7)
+on conflict (broker_partition, broker_offset) do nothing`, nullableTenant, eventKey, schemaVersion, reason, payloadSHA256, partition, offset)
+	return err
+}
+
 func (s *Store) RetentionPolicies(ctx context.Context) ([]RetentionPolicy, error) {
 	rows, err := s.db.QueryContext(ctx, `select t.id, coalesce(r.retention_days, 30) from tenants t left join tenant_retention r on r.tenant_id = t.id`)
 	if err != nil {

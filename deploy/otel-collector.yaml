@@ -1,6 +1,12 @@
 receivers:
-  # The collector observes platform health only. It does not receive tenant
-  # telemetry, which must enter the redaction-first gateway directly.
+  # This local synthetic interoperability path forwards immediately to the
+  # redaction-first gateway. It must never be used with real customer data.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
   prometheus:
     config:
       scrape_configs:
@@ -11,10 +17,22 @@ receivers:
           static_configs:
             - targets: [query:8081]
 exporters:
+  otlp/paop:
+    endpoint: gateway:4317
+    tls:
+      insecure: true
+    headers:
+      x-paop-api-key: ${env:PAOP_SYNTHETIC_API_KEY}
   prometheus:
     endpoint: 0.0.0.0:8889
 service:
   pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/paop]
+    logs:
+      receivers: [otlp]
+      exporters: [otlp/paop]
     metrics:
       receivers: [prometheus]
       exporters: [prometheus]

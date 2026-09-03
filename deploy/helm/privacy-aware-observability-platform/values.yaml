@@ -1,0 +1,50 @@
+replicaCount:
+  gateway: 2
+  query: 2
+  tailer: 2
+  persist: 2
+
+images:
+  gateway: {repository: paop/gateway, tag: v0.2.0, pullPolicy: IfNotPresent}
+  query: {repository: paop/query, tag: v0.2.0, pullPolicy: IfNotPresent}
+  tailer: {repository: paop/tailer, tag: v0.2.0, pullPolicy: IfNotPresent}
+  persist: {repository: paop/persist, tag: v0.2.0, pullPolicy: IfNotPresent}
+  migrate: {repository: paop/migrate, tag: v0.2.0, pullPolicy: IfNotPresent}
+  clickhouseMigrate: {repository: paop/clickhouse-migrate, tag: v0.2.0, pullPolicy: IfNotPresent}
+  bootstrap: {repository: paop/bootstrap, tag: v0.2.0, pullPolicy: IfNotPresent}
+
+external:
+  postgresURLSecret: paop-runtime
+  postgresURLKey: postgres-url
+  kafkaBrokers: redpanda:9092
+  clickhouseURLSecret: paop-runtime
+  clickhouseURLKey: clickhouse-url
+
+synthetic:
+  tenantID: synthetic-kind
+  apiKeySecret: paop-runtime
+  apiKeyKey: api-key
+
+policy:
+  version: local-v2
+  patterns: "customer-[0-9]+"
+
+sampling:
+  healthyModulo: 100
+
+localDependencies:
+  enabled: false
+
+networkPolicy:
+  enabled: true
+
+resources:
+  gateway:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+  query:
+    requests: {cpu: 25m, memory: 48Mi}
+    limits: {cpu: 300m, memory: 192Mi}
+  worker:
+    requests: {cpu: 25m, memory: 48Mi}
+    limits: {cpu: 500m, memory: 256Mi}

@@ -1,0 +1,66 @@
+{{- if .Values.localDependencies.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata: {name: paop-migrate}
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: {{ .Values.images.migrate.repository }}:{{ .Values.images.migrate.tag }}
+          imagePullPolicy: {{ .Values.images.migrate.pullPolicy }}
+          env:
+            - name: PAOP_POSTGRES_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.external.postgresURLSecret }}, key: {{ .Values.external.postgresURLKey }}}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: paop-clickhouse-migrate}
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: {{ .Values.images.clickhouseMigrate.repository }}:{{ .Values.images.clickhouseMigrate.tag }}
+          imagePullPolicy: {{ .Values.images.clickhouseMigrate.pullPolicy }}
+          env:
+            - name: PAOP_CLICKHOUSE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.external.clickhouseURLSecret }}, key: {{ .Values.external.clickhouseURLKey }}}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: paop-topic-init}
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: topic-init
+          image: redpandadata/redpanda:v25.1.4
+          command: [/bin/bash, -ec]
+          args: ["until rpk cluster info -X brokers=redpanda:9092; do sleep 1; done; rpk topic create sanitized-telemetry-v1 -X brokers=redpanda:9092 -p 4 -r 1 || true"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: paop-bootstrap}
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: {{ .Values.images.bootstrap.repository }}:{{ .Values.images.bootstrap.tag }}
+          imagePullPolicy: {{ .Values.images.bootstrap.pullPolicy }}
+          env:
+            - name: PAOP_POSTGRES_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.external.postgresURLSecret }}, key: {{ .Values.external.postgresURLKey }}}}
+            - {name: PAOP_TENANT_ID, value: {{ .Values.synthetic.tenantID | quote }}}
+            - name: PAOP_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.synthetic.apiKeySecret }}, key: {{ .Values.synthetic.apiKeyKey }}}}
+{{- end }}

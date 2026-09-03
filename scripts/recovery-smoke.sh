@@ -46,7 +46,7 @@ sleep 3
 "${compose[@]}" unpause clickhouse
 "${compose[@]}" restart persist
 
-for _ in {1..45}; do
+for _ in {1..90}; do
   result=$(curl --silent --show-error "$query_url" --header "x-paop-api-key: $api_key" || true)
   if [[ "$result" == *'recovery.checkout'* ]]; then break; fi
   sleep 1

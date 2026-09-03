@@ -16,6 +16,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
+	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type result struct {
@@ -36,6 +42,7 @@ type result struct {
 	GOARCH            string   `json:"goarch"`
 	CPUs              int      `json:"cpus"`
 	TraceSamples      []string `json:"traceSamples"`
+	Transport         string   `json:"transport"`
 }
 
 func main() {
@@ -46,10 +53,11 @@ func main() {
 	workers := flag.Int("workers", 4, "concurrent request workers")
 	batchSize := flag.Int("batch-size", 100, "synthetic spans per OTLP request")
 	output := flag.String("output", "", "optional JSON result file")
+	transport := flag.String("transport", "protobuf", "OTLP/HTTP transport: protobuf or json")
 	sampleLimit := flag.Int("trace-sample-limit", 100, "maximum successful trace IDs retained for later lookup measurement")
 	sampleModulo := flag.Int("healthy-sample-modulo", 1, "record trace samples selected by this deterministic healthy-sampling modulo")
 	flag.Parse()
-	if *key == "" || *rate < 1 || *workers < 1 || *batchSize < 1 || *sampleLimit < 0 || *sampleModulo < 1 {
+	if *key == "" || *rate < 1 || *workers < 1 || *batchSize < 1 || *sampleLimit < 0 || *sampleModulo < 1 || (*transport != "protobuf" && *transport != "json") {
 		fmt.Fprintln(os.Stderr, "api-key, positive rate, workers, batch-size, and healthy-sample-modulo are required")
 		os.Exit(2)
 	}
@@ -79,10 +87,14 @@ func main() {
 			for batch := range jobs {
 				start := time.Now()
 				atomic.AddInt64(&sent, int64(batch))
-				payload, traceIDs := spanPayload(batch)
+				payload, traceIDs := spanPayload(batch, *transport)
 				request, err := http.NewRequest(http.MethodPost, *endpoint, bytes.NewReader(payload))
 				if err == nil {
-					request.Header.Set("Content-Type", "application/json")
+					if *transport == "protobuf" {
+						request.Header.Set("Content-Type", "application/x-protobuf")
+					} else {
+						request.Header.Set("Content-Type", "application/json")
+					}
 					request.Header.Set("X-PAOP-API-Key", *key)
 					var response *http.Response
 					response, err = client.Do(request)
@@ -144,7 +156,7 @@ loop:
 	latencyGroup.Wait()
 	sort.Float64s(latencySamples)
 	elapsed := time.Since(started)
-	report := result{StartedAt: startedAt.Format(time.RFC3339), FinishedAt: time.Now().UTC().Format(time.RFC3339), TargetPerSecond: *rate, BatchSize: *batchSize, DurationSeconds: int(duration.Seconds()), ElapsedMillis: float64(elapsed.Microseconds()) / 1000, AchievedPerSecond: float64(accepted) / elapsed.Seconds(), Sent: sent, Accepted: accepted, Failed: failed, P50Millis: percentile(latencySamples, 50), P95Millis: percentile(latencySamples, 95), P99Millis: percentile(latencySamples, 99), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU(), TraceSamples: traceSamples}
+	report := result{StartedAt: startedAt.Format(time.RFC3339), FinishedAt: time.Now().UTC().Format(time.RFC3339), TargetPerSecond: *rate, BatchSize: *batchSize, DurationSeconds: int(duration.Seconds()), ElapsedMillis: float64(elapsed.Microseconds()) / 1000, AchievedPerSecond: float64(accepted) / elapsed.Seconds(), Sent: sent, Accepted: accepted, Failed: failed, P50Millis: percentile(latencySamples, 50), P95Millis: percentile(latencySamples, 95), P99Millis: percentile(latencySamples, 99), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU(), TraceSamples: traceSamples, Transport: *transport}
 	encoded, _ := json.MarshalIndent(report, "", "  ")
 	if *output != "" {
 		if err := os.WriteFile(*output, append(encoded, '\n'), 0o600); err != nil {
@@ -155,7 +167,10 @@ loop:
 	_, _ = os.Stdout.Write(append(encoded, '\n'))
 }
 
-func spanPayload(count int) ([]byte, []string) {
+func spanPayload(count int, transport string) ([]byte, []string) {
+	if transport == "protobuf" {
+		return spanPayloadProtobuf(count)
+	}
 	spans := make([]any, 0, count)
 	trace := randomID(16)
 	for range count {
@@ -171,12 +186,48 @@ func spanPayload(count int) ([]byte, []string) {
 	payload, _ := json.Marshal(map[string]any{"resourceSpans": []any{map[string]any{"scopeSpans": []any{map[string]any{"spans": spans}}}}})
 	return payload, []string{trace}
 }
-func randomID(bytesLen int) string {
-	bytes := make([]byte, bytesLen)
-	if _, err := rand.Read(bytes); err != nil {
+
+func spanPayloadProtobuf(count int) ([]byte, []string) {
+	traceID := randomBytes(16)
+	spans := make([]*tracev1.Span, 0, count)
+	for range count {
+		spans = append(spans, &tracev1.Span{
+			TraceId: traceID,
+			SpanId:  randomBytes(8),
+			Name:    "synthetic.checkout",
+			Attributes: []*commonv1.KeyValue{
+				{Key: "http.method", Value: stringValue("POST")},
+				{Key: "db.system", Value: stringValue("postgresql")},
+				{Key: "messaging.system", Value: stringValue("redpanda")},
+				{Key: "customer.email", Value: stringValue("synthetic.user@example.test")},
+			},
+		})
+	}
+	request := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: []*tracev1.ResourceSpans{{
+		Resource:   &resourcev1.Resource{Attributes: []*commonv1.KeyValue{{Key: "service.name", Value: stringValue("synthetic-typescript-gateway")}}},
+		ScopeSpans: []*tracev1.ScopeSpans{{Spans: spans}},
+	}}}
+	payload, err := proto.Marshal(request)
+	if err != nil {
 		panic(err)
 	}
-	return hex.EncodeToString(bytes)
+	return payload, []string{hex.EncodeToString(traceID)}
+}
+
+func stringValue(value string) *commonv1.AnyValue {
+	return &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: value}}
+}
+
+func randomBytes(bytesLen int) []byte {
+	value := make([]byte, bytesLen)
+	if _, err := rand.Read(value); err != nil {
+		panic(err)
+	}
+	return value
+}
+
+func randomID(bytesLen int) string {
+	return hex.EncodeToString(randomBytes(bytesLen))
 }
 func percentile(values []float64, percentile int) float64 {
 	if len(values) == 0 {

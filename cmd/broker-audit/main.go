@@ -29,36 +29,51 @@ func main() {
 	}
 
 	markers := splitNonEmpty(*forbidden)
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     splitNonEmpty(*brokers),
-		Topic:       *topic,
-		Partition:   0,
-		StartOffset: kafka.FirstOffset,
-		MinBytes:    1,
-		MaxBytes:    10e6,
-	})
-	defer reader.Close()
-
+	brokerList := splitNonEmpty(*brokers)
+	connection, err := kafka.Dial("tcp", brokerList[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "broker audit failed to connect: %v\n", err)
+		os.Exit(1)
+	}
+	partitions, err := connection.ReadPartitions(*topic)
+	_ = connection.Close()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "broker audit failed to enumerate partitions: %v\n", err)
+		os.Exit(1)
+	}
 	count := 0
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), *quiet)
-		message, err := reader.ReadMessage(ctx)
-		cancel()
-		if err != nil {
-			if ctxErr := context.DeadlineExceeded; strings.Contains(err.Error(), ctxErr.Error()) || count > 0 {
-				break
-			}
-			fmt.Fprintf(os.Stderr, "broker audit failed before receiving telemetry: %v\n", err)
-			os.Exit(1)
-		}
-		count++
-		payload := string(message.Value)
-		for _, marker := range markers {
-			if strings.Contains(payload, marker) {
-				fmt.Fprintln(os.Stderr, "broker audit failed: a forbidden raw marker was found")
+	for _, partition := range partitions {
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:     brokerList,
+			Topic:       *topic,
+			Partition:   partition.ID,
+			StartOffset: kafka.FirstOffset,
+			MinBytes:    1,
+			MaxBytes:    10e6,
+		})
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), *quiet)
+			message, readErr := reader.ReadMessage(ctx)
+			cancel()
+			if readErr != nil {
+				if strings.Contains(readErr.Error(), context.DeadlineExceeded.Error()) {
+					break
+				}
+				_ = reader.Close()
+				fmt.Fprintf(os.Stderr, "broker audit failed while reading partition %d: %v\n", partition.ID, readErr)
 				os.Exit(1)
 			}
+			count++
+			payload := string(message.Value)
+			for _, marker := range markers {
+				if strings.Contains(payload, marker) {
+					_ = reader.Close()
+					fmt.Fprintln(os.Stderr, "broker audit failed: a forbidden raw marker was found")
+					os.Exit(1)
+				}
+			}
 		}
+		_ = reader.Close()
 	}
 
 	if count == 0 {

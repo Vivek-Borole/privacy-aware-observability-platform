@@ -1,0 +1,52 @@
+{{- $root := . -}}
+{{- range $name := list "gateway" "query" "tailer" "persist" }}
+{{- $image := index $root.Values.images $name }}
+{{- $replicas := index $root.Values.replicaCount $name }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paop-{{ $name }}
+  labels: {{- include "paop.labels" $root | nindent 4 }}
+spec:
+  replicas: {{ $replicas }}
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 1, maxSurge: 1}}
+  selector:
+    matchLabels: {{- include "paop.selector" (dict "name" $name "root" $root) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "paop.selector" (dict "name" $name "root" $root) | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: {{ $name }}
+          image: {{ $image.repository }}:{{ $image.tag }}
+          imagePullPolicy: {{ $image.pullPolicy }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          env:
+            - name: PAOP_POSTGRES_URL
+              valueFrom: {secretKeyRef: {name: {{ $root.Values.external.postgresURLSecret }}, key: {{ $root.Values.external.postgresURLKey }}}}
+            - {name: PAOP_KAFKA_BROKERS, value: {{ $root.Values.external.kafkaBrokers | quote }}}
+            - name: PAOP_CLICKHOUSE_URL
+              valueFrom: {secretKeyRef: {name: {{ $root.Values.external.clickhouseURLSecret }}, key: {{ $root.Values.external.clickhouseURLKey }}}}
+            - {name: PAOP_POLICY_VERSION, value: {{ $root.Values.policy.version | quote }}}
+            - {name: PAOP_REDACTION_PATTERNS, value: {{ $root.Values.policy.patterns | quote }}}
+            - {name: PAOP_TAIL_OWNER, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            {{- if eq $name "tailer" }}
+            - {name: PAOP_HEALTHY_SAMPLE_MODULO, value: {{ $root.Values.sampling.healthyModulo | quote }}}
+            {{- end }}
+          {{- if eq $name "gateway" }}
+          ports: [{name: http, containerPort: 8080}, {name: grpc, containerPort: 4317}]
+          readinessProbe: {httpGet: {path: /metrics, port: http}, initialDelaySeconds: 3, periodSeconds: 3}
+          livenessProbe: {httpGet: {path: /metrics, port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources: {{- toYaml $root.Values.resources.gateway | nindent 12 }}
+          {{- else if eq $name "query" }}
+          ports: [{name: http, containerPort: 8081}]
+          readinessProbe: {httpGet: {path: /metrics, port: http}, initialDelaySeconds: 3, periodSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources: {{- toYaml $root.Values.resources.query | nindent 12 }}
+          {{- else }}
+          resources: {{- toYaml $root.Values.resources.worker | nindent 12 }}
+          {{- end }}
+---
+{{- end }}

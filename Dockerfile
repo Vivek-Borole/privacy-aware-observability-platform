@@ -54,8 +54,9 @@ USER nonroot:nonroot
 EXPOSE 8092
 ENTRYPOINT ["/synthetic-worker"]
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot AS gateway
 COPY --from=build /gateway /gateway
 USER nonroot:nonroot
 EXPOSE 8080
+EXPOSE 4317
 ENTRYPOINT ["/gateway"]

@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:18-alpine
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=200", "-c", "checkpoint_timeout=30min", "-c", "checkpoint_completion_target=0.9", "-c", "max_wal_size=16GB", "-c", "min_wal_size=2GB"]
     environment:
       POSTGRES_DB: paop
       POSTGRES_USER: paop
@@ -34,7 +35,9 @@ services:
     image: otel/opentelemetry-collector-contrib:0.157.0
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes: ["./deploy/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro"]
-    ports: ["18889:8889"]
+    environment:
+      PAOP_SYNTHETIC_API_KEY: synthetic-compose-key-not-for-production
+    ports: ["18889:8889", "24317:4317", "24318:4318"]
     depends_on:
       gateway: {condition: service_started}
       query: {condition: service_started}
@@ -62,7 +65,7 @@ services:
     command:
       - |-
         until rpk cluster info -X brokers=redpanda:9092; do sleep 1; done
-        rpk topic create sanitized-telemetry-v1 -X brokers=redpanda:9092 -p 1 -r 1 || rpk topic list -X brokers=redpanda:9092 | grep -q '^sanitized-telemetry-v1'
+        rpk topic create sanitized-telemetry-v1 -X brokers=redpanda:9092 -p 4 -r 1 || rpk topic list -X brokers=redpanda:9092 | grep -q '^sanitized-telemetry-v1'
     depends_on:
       redpanda: {condition: service_started}
   gateway:
@@ -71,7 +74,7 @@ services:
       PAOP_POSTGRES_URL: postgres://paop:paop-local-only@postgres:5432/paop?sslmode=disable
       PAOP_POLICY_VERSION: local-v1
       PAOP_REDACTION_PATTERNS: "customer-[0-9]+"
-    ports: ["18080:8080"]
+    ports: ["18080:8080", "14317:4317"]
     depends_on:
       postgres: {condition: service_healthy}
       redpanda: {condition: service_started}

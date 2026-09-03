@@ -1,0 +1,20 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: paop-default-deny}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/part-of: privacy-aware-observability-platform}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: paop-runtime-egress}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/part-of: privacy-aware-observability-platform}
+  policyTypes: [Egress]
+  egress:
+    - to: [{namespaceSelector: {}}]
+      ports: [{protocol: TCP, port: 5432}, {protocol: TCP, port: 9092}, {protocol: TCP, port: 8123}, {protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+{{- end }}

@@ -8,6 +8,13 @@ reproducible harness:
 bash scripts/run-benchmark.sh
 ```
 
+The local PostgreSQL profile uses a 30-minute checkpoint interval and a 16 GiB
+WAL ceiling so this write-heavy ten-minute experiment measures ingestion rather
+than repeatedly forcing checkpoints under the image's small default WAL limit.
+These settings are evidence-harness configuration, not universal production
+tuning; the environment capture and post-run resource snapshot make them
+auditable.
+
 The harness records start time, operating system/architecture, CPU count,
 target rate, actual elapsed time, actual accepted throughput, request totals,
 accepted/failure counts, p50/p95/p99 ingest latency, a bounded list of
@@ -26,7 +33,7 @@ so a small fabricated scenario is predictable. The benchmark overrides it to
 measuring every accepted ingest request. Its stored lookup sample contains only
 trace IDs selected by that same FNV-1a decision rule.
 
-The emitter sends bounded OTLP batches of 100 synthetic spans. Throughput is
+The emitter sends bounded OTLP protobuf batches of 200 synthetic spans. Throughput is
 reported in spans per second; request-latency percentiles describe those batch
 requests. This avoids treating host timer granularity or per-request overhead
 as a span-throughput result while preserving transactional batch validation.
@@ -36,5 +43,5 @@ committed or claimed before that local workload finishes. Validate an existing
 synthetic report with:
 
 ```bash
-node scripts/validate-benchmark-report.mjs docs/evidence/ingestion-benchmark.raw.json docs/evidence/lookup-benchmark.raw.json
+node scripts/validate-benchmark-report.mjs docs/evidence/ingestion-benchmark-v0.2.raw.json docs/evidence/lookup-benchmark-v0.2.raw.json
 ```

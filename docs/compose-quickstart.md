@@ -11,7 +11,8 @@ bash scripts/integration-smoke.sh
 
 The smoke command starts PostgreSQL, Redpanda, ClickHouse, migrations, gateway,
 persistence worker, tail-sampling worker, and query API. It creates a local
-synthetic tenant, sends a seeded OTLP/HTTP trace and a trace-linked OTLP log,
+synthetic tenant, sends native OTLP/HTTP protobuf through both the gateway and
+an official OpenTelemetry Collector, plus a trace-linked OTLP log,
 waits for persistence, verifies redaction, explicit sampling evidence, and
 tenant-scoped lookup, then rejects any raw seed in PostgreSQL, Redpanda,
 ClickHouse, service logs, and metrics. The Redpanda assertion uses an in-memory
@@ -39,9 +40,10 @@ not imply that ClickHouse has already completed physical erasure.
 
 Prometheus is available at `http://localhost:19090` and the provisioned local
 Grafana dashboard at `http://localhost:13000`. The OpenTelemetry Collector
-scrapes and exports bounded gateway/query HTTP outcomes to Prometheus; no
-tenant IDs, trace IDs, attributes, keys, or telemetry content become metric
-labels. The collector is deliberately not a raw tenant-telemetry ingest path.
+proves official OTLP interoperability by forwarding a synthetic fixture to the
+same authenticated redaction-first gateway. It also scrapes bounded
+gateway/query HTTP outcomes for Prometheus; no tenant IDs, trace IDs,
+attributes, keys, or telemetry content become metric labels.
 
 The synthetic smoke test verifies that the collector exposes the internal
 `paop_http_requests_total` metric and rejects unsafe content in those metric

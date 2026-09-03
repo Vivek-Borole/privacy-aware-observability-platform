@@ -1,0 +1,8 @@
+.git
+.github
+node_modules
+apps/*/node_modules
+apps/*/dist
+docs/evidence
+*.mov
+*.png
